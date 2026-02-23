@@ -169,3 +169,139 @@
     border-radius: 3px;
     font-size: 12px;
 }
+
+/* ===== カテゴリ/検索結果ページ用（amazon-category-inject） ===== */
+
+.sedori-cat-wrapper {
+    margin: 4px 0;
+}
+
+/* Y!検索ボタン（コンパクト版） */
+.sedori-cat-btn {
+    font-family: "Segoe UI", "Hiragino Sans", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    background: #ff5722;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 3px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.sedori-cat-btn:hover {
+    background: #e64a19;
+}
+
+.sedori-cat-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* ミニパネル */
+.sedori-mini-panel {
+    border: 1px solid #ff5722;
+    border-radius: 6px;
+    background: #fff;
+    margin-top: 4px;
+    font-family: "Segoe UI", "Hiragino Sans", sans-serif;
+    font-size: 12px;
+    max-width: 360px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    z-index: 9999;
+}
+
+.sedori-mini-header {
+    background: #ff5722;
+    color: white;
+    padding: 4px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 5px 5px 0 0;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.sedori-mini-close {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.sedori-mini-close:hover {
+    opacity: 0.7;
+}
+
+.sedori-mini-items {
+    padding: 4px;
+}
+
+.sedori-mini-item {
+    padding: 5px 6px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.sedori-mini-item:last-child {
+    border-bottom: none;
+}
+
+.sedori-mini-title {
+    display: block;
+    color: #1a0dab;
+    text-decoration: none;
+    font-size: 11px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+}
+
+.sedori-mini-title:hover {
+    text-decoration: underline;
+}
+
+.sedori-mini-meta {
+    display: flex;
+    gap: 6px;
+    color: #666;
+    font-size: 11px;
+    flex-wrap: wrap;
+}
+
+.sedori-mini-price {
+    color: #d32f2f;
+    font-weight: 600;
+}
+
+.sedori-mini-buynow {
+    color: #1565c0;
+    font-weight: 600;
+}
+
+.sedori-mini-time {
+    color: #555;
+}
+
+.sedori-mini-loading,
+.sedori-mini-empty,
+.sedori-mini-error {
+    padding: 10px;
+    text-align: center;
+    color: #666;
+    font-size: 12px;
+}
+
+.sedori-mini-error {
+    color: #d32f2f;
+}

@@ -27,6 +27,22 @@
         },
         {
             "matches": [
+                "https://www.amazon.co.jp/b/*",
+                "https://www.amazon.co.jp/*/b/*",
+                "https://www.amazon.co.jp/s*",
+                "https://www.amazon.co.jp/*/s*",
+                "https://www.amazon.co.jp/gp/browse*"
+            ],
+            "js": [
+                "dist/amazon-category-inject.js"
+            ],
+            "css": [
+                "dist/styles.css"
+            ],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
                 "https://page.auctions.yahoo.co.jp/jp/auction/*"
             ],
             "js": [

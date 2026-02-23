@@ -4,6 +4,7 @@ const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 module.exports = {
     entry: {
         "amazon-inject": "./src/content/amazon-inject.ts",
+        "amazon-category-inject": "./src/content/amazon-category-inject.ts",
         "yahoo-inject": "./src/content/yahoo-inject.ts",
         "service-worker": "./src/background/service-worker.ts",
         styles: "./src/content/styles.css",
