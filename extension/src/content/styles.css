@@ -1,0 +1,171 @@
+/* Sedori Tool - Content Script スタイル */
+
+/* ボタン共通 */
+.sedori-btn {
+    font-family: "Segoe UI", "Hiragino Sans", sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.sedori-btn:hover {
+    filter: brightness(0.9);
+}
+
+.sedori-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* Y!検索ボタン（Amazon上） */
+.sedori-btn-primary {
+    background: #ff5722;
+    color: white;
+    margin: 12px 0;
+    display: block;
+    width: 100%;
+    font-size: 16px;
+    padding: 12px;
+}
+
+/* 監視追加ボタン（ヤフオク上） */
+.sedori-btn-monitor {
+    background: #2196f3;
+    color: white;
+    margin: 12px 0;
+    display: inline-block;
+    font-size: 15px;
+    padding: 10px 20px;
+}
+
+/* 結果パネル内の監視追加ボタン */
+.sedori-btn-add {
+    background: #4caf50;
+    color: white;
+    font-size: 12px;
+    padding: 6px 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* 結果パネル */
+.sedori-panel {
+    border: 2px solid #ff5722;
+    border-radius: 8px;
+    margin: 12px 0;
+    background: #fff;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.sedori-panel-header {
+    background: #ff5722;
+    color: white;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.sedori-panel-header .sedori-link {
+    color: white;
+    text-decoration: underline;
+    font-size: 12px;
+}
+
+/* 結果アイテム */
+.sedori-items {
+    padding: 4px;
+}
+
+.sedori-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+}
+
+.sedori-item:last-child {
+    border-bottom: none;
+}
+
+.sedori-item-img {
+    width: 60px;
+    height: 60px;
+    flex-shrink: 0;
+}
+
+.sedori-item-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.sedori-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.sedori-item-title {
+    color: #333;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.sedori-item-title:hover {
+    color: #ff5722;
+    text-decoration: underline;
+}
+
+.sedori-item-meta {
+    font-size: 12px;
+    color: #666;
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.sedori-price {
+    color: #d32f2f;
+    font-weight: 600;
+}
+
+.sedori-price-buynow {
+    color: #1976d2;
+    font-weight: 600;
+}
+
+/* ステータス表示 */
+.sedori-loading,
+.sedori-empty,
+.sedori-error {
+    padding: 20px;
+    text-align: center;
+    color: #666;
+    font-size: 14px;
+}
+
+.sedori-error {
+    color: #d32f2f;
+}
+
+.sedori-error code {
+    background: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+}

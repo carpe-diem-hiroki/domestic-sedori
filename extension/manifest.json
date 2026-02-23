@@ -1,0 +1,46 @@
+{
+    "manifest_version": 3,
+    "name": "Sedori Tool - Y!検索 & 監視追加",
+    "version": "0.1.0",
+    "description": "Amazon商品ページでヤフオク検索、ヤフオクページから監視対象に追加",
+    "permissions": [],
+    "host_permissions": [
+        "https://www.amazon.co.jp/*",
+        "https://page.auctions.yahoo.co.jp/*",
+        "https://auctions.yahoo.co.jp/*",
+        "http://localhost:8000/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "https://www.amazon.co.jp/dp/*",
+                "https://www.amazon.co.jp/*/dp/*",
+                "https://www.amazon.co.jp/gp/product/*"
+            ],
+            "js": [
+                "dist/amazon-inject.js"
+            ],
+            "css": [
+                "dist/styles.css"
+            ],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "https://page.auctions.yahoo.co.jp/jp/auction/*"
+            ],
+            "js": [
+                "dist/yahoo-inject.js"
+            ],
+            "css": [
+                "dist/styles.css"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "background": {
+        "service_worker": "dist/service-worker.js"
+    },
+    "icons": {}
+
+}
