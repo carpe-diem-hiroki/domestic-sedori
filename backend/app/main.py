@@ -1,6 +1,13 @@
 """FastAPI メインアプリケーション"""
+import asyncio
 import logging
+import sys
 from contextlib import asynccontextmanager
+
+# Windows + uvicorn --reload で SelectorEventLoop になる問題を修正
+# Playwright が subprocess を起動するには ProactorEventLoop が必要
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
