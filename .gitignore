@@ -33,3 +33,13 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Build artifacts
+extension.crx
+extension.pem
+
+# Debug/Investigation
+investigate_amazon_dom.js
+
+# Coverage
+.coverage

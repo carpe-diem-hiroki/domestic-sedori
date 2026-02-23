@@ -1,24 +1,20 @@
 /**
- * Amazonカテゴリ/検索結果ページの商品一覧に Y!検索ボタンを注入
+ * Amazonカテゴリ/検索結果ページ - 全商品を自動Y!検索
  *
- * 対象URL:
- *   https://www.amazon.co.jp/b/?node=...  （カテゴリ階層ページ）
- *   https://www.amazon.co.jp/s?k=...       （検索結果ページ）
- *
- * 動作:
- *   1. [data-asin] 要素を検出して商品タイトルを取得
- *   2. タイトルから型番を推定して「Y! 型番」ボタンを追加
- *   3. クリックでインラインミニパネルにヤフオク結果を表示
- *   4. MutationObserver で無限スクロール/遅延ロードにも対応
+ * バグ修正:
+ *   1. closest() を廃止 → parentElement のみ使用（itemEl の外に出ない）
+ *   2. ネストした [data-asin] の外側ラッパーをスキップ
+ *   3. MutationObserver に debounce を適用、processQueue は injectAll から1回だけ呼ぶ
  */
 import { searchYahoo, SearchResult } from "../utils/api-client";
 
-/** タイトルから型番を推定 */
+const CONCURRENCY = 3;
+const BATCH_DELAY_MS = 400;
+const OBSERVER_DEBOUNCE_MS = 500;
+
 function extractKeyword(title: string): string {
-    // 型番パターン: KJ-55X90K, BW-X90G, TH-32J300 など
     const match = title.match(/[A-Z]{1,4}[-]?\d{2,5}[A-Z]{0,3}\d{0,4}[A-Z]?(?:[-]\d+)?/i);
     if (match) return match[0];
-    // マッチしなければ先頭3ワード
     return title.split(/\s+/).slice(0, 3).join(" ");
 }
 
@@ -29,10 +25,9 @@ function formatPrice(price: number | null): string {
 
 function renderMiniResults(panel: HTMLDivElement, results: SearchResult[]) {
     if (results.length === 0) {
-        panel.innerHTML = `<div class="sedori-mini-empty">ヤフオクに出品なし</div>`;
+        panel.innerHTML = `<div class="sedori-mini-empty">出品なし</div>`;
         return;
     }
-
     const items = results
         .slice(0, 5)
         .map(
@@ -48,34 +43,63 @@ function renderMiniResults(panel: HTMLDivElement, results: SearchResult[]) {
         </div>`
         )
         .join("");
-
     panel.innerHTML = `
         <div class="sedori-mini-header">
             <span>ヤフオク ${results.length}件</span>
-            <button class="sedori-mini-close" title="閉じる">×</button>
         </div>
         <div class="sedori-mini-items">${items}</div>`;
-
-    panel.querySelector(".sedori-mini-close")?.addEventListener("click", (e) => {
-        e.stopPropagation();
-        panel.style.display = "none";
-    });
 }
 
-/** 1つの商品カードにボタン+パネルを注入 */
+// ===== キュー =====
+
+interface QueueItem {
+    keyword: string;
+    panel: HTMLDivElement;
+}
+const searchQueue: QueueItem[] = [];
+let isProcessing = false;
+
+async function processQueue() {
+    if (isProcessing) return;
+    isProcessing = true;
+    while (searchQueue.length > 0) {
+        const batch = searchQueue.splice(0, CONCURRENCY);
+        batch.forEach((item) => {
+            item.panel.innerHTML = `<div class="sedori-mini-loading">検索中...</div>`;
+        });
+        await Promise.all(
+            batch.map(async (item) => {
+                try {
+                    const results = await searchYahoo(item.keyword);
+                    renderMiniResults(item.panel, results);
+                } catch {
+                    item.panel.innerHTML = `<div class="sedori-mini-error">エラー</div>`;
+                }
+            })
+        );
+        if (searchQueue.length > 0) {
+            await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
+        }
+    }
+    isProcessing = false;
+}
+
+// ===== DOM 注入 =====
+
 function injectIntoItem(itemEl: Element) {
     const asin = itemEl.getAttribute("data-asin");
     if (!asin || asin === "") return;
 
-    // 既に注入済みならスキップ
-    if (itemEl.querySelector(".sedori-cat-btn")) return;
+    // 注入済みスキップ（べき等保証）
+    // ※ querySelectorAll("[data-asin]") は外側ラッパーと内側カードの両方にマッチするが、
+    //   最初に処理された側が wrapper を挿入すると、もう片方の querySelector で発見されるため
+    //   自然にスキップされる
+    if (itemEl.querySelector(".sedori-cat-wrapper")) return;
 
-    // タイトル要素を取得（複数セレクターで広くカバー）
     const titleEl = itemEl.querySelector<HTMLElement>(
         "h2 .a-link-normal span, " +
         ".a-size-medium.a-color-base.a-text-normal, " +
         ".a-size-base-plus.a-color-base.a-text-normal, " +
-        ".a-size-mini .a-link-normal .a-text-normal, " +
         ".a-text-normal"
     );
     const title = titleEl?.textContent?.trim() || "";
@@ -83,74 +107,57 @@ function injectIntoItem(itemEl: Element) {
 
     const keyword = extractKeyword(title);
 
-    // ボタン
-    const btn = document.createElement("button");
-    btn.className = "sedori-cat-btn";
-    btn.textContent = `Y! ${keyword}`;
-    btn.title = `ヤフオクで「${keyword}」を検索`;
-
-    // ミニパネル
-    const panel = document.createElement("div");
-    panel.className = "sedori-mini-panel";
-    panel.style.display = "none";
-
-    // ラッパー
     const wrapper = document.createElement("div");
     wrapper.className = "sedori-cat-wrapper";
-    wrapper.appendChild(btn);
+
+    const label = document.createElement("div");
+    label.className = "sedori-cat-label";
+    label.textContent = `Y!: ${keyword}`;
+
+    const panel = document.createElement("div");
+    panel.className = "sedori-mini-panel";
+    panel.innerHTML = `<div class="sedori-mini-waiting">待機中...</div>`;
+
+    wrapper.appendChild(label);
     wrapper.appendChild(panel);
 
-    // 価格の下、またはタイトルの親に挿入
-    const priceRow =
-        itemEl.querySelector(".a-price")?.closest(".a-row") ||
-        itemEl.querySelector(".a-price")?.parentElement;
-    const insertAfter = priceRow || titleEl?.closest(".a-row") || titleEl?.parentElement;
+    // Fix 1: closest() を使わず parentElement のみ使用
+    // querySelector で見つかった要素の parentElement は必ず itemEl の子孫
+    const priceEl = itemEl.querySelector(".a-price");
+    const insertTarget = priceEl?.parentElement ?? titleEl?.parentElement ?? null;
 
-    if (insertAfter && insertAfter.parentElement) {
-        insertAfter.parentElement.insertBefore(wrapper, insertAfter.nextSibling);
+    if (insertTarget && insertTarget.parentElement) {
+        insertTarget.parentElement.insertBefore(wrapper, insertTarget.nextSibling);
     } else {
-        // フォールバック：直接 itemEl に追加
         itemEl.appendChild(wrapper);
     }
 
-    // クリックで検索
-    btn.addEventListener("click", async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // トグル
-        if (panel.style.display !== "none") {
-            panel.style.display = "none";
-            return;
-        }
-
-        btn.disabled = true;
-        btn.textContent = "検索中...";
-        panel.style.display = "block";
-        panel.innerHTML = `<div class="sedori-mini-loading">ヤフオクを検索中...</div>`;
-
-        try {
-            const results = await searchYahoo(keyword);
-            renderMiniResults(panel, results);
-        } catch {
-            panel.innerHTML = `<div class="sedori-mini-error">エラー: バックエンド未起動？</div>`;
-        } finally {
-            btn.disabled = false;
-            btn.textContent = `Y! ${keyword}`;
-        }
-    });
+    // キューに追加（processQueue は injectAll から一括で呼ぶ）
+    searchQueue.push({ keyword, panel });
 }
 
-/** ページ内の全商品に注入 */
 function injectAll() {
     document.querySelectorAll("[data-asin]").forEach(injectIntoItem);
+    // Fix 3: processQueue は injectAll の末尾で1回だけ
+    if (searchQueue.length > 0) {
+        processQueue();
+    }
 }
 
+// Fix 3: debounce で MutationObserver の過剰発火を抑制
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+const observer = new MutationObserver(() => {
+    if (debounceTimer !== null) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        injectAll();
+    }, OBSERVER_DEBOUNCE_MS);
+});
+
 // 初回実行
-const found = document.querySelectorAll("[data-asin]").length;
-console.log(`[Sedori] amazon-category-inject: loaded. data-asin elements=${found}, url=${location.href}`);
+console.log(`[Sedori] amazon-category-inject: loaded. url=${location.href}`);
 injectAll();
 
-// 無限スクロール・遅延ロードに対応
-const observer = new MutationObserver(() => injectAll());
+// DOM変化の監視開始
 observer.observe(document.body, { childList: true, subtree: true });

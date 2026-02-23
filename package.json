@@ -1,0 +1,24 @@
+{
+  "name": "sedori-domestic",
+  "version": "1.0.0",
+  "description": "",
+  "main": "investigate_amazon_dom.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/carpe-diem-hiroki/domestic-sedori.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/carpe-diem-hiroki/domestic-sedori/issues"
+  },
+  "homepage": "https://github.com/carpe-diem-hiroki/domestic-sedori#readme",
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
+}
