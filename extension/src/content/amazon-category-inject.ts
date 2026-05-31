@@ -2,16 +2,33 @@
  * Amazonカテゴリ/検索結果ページ - 全商品を自動Y!検索
  * ホバーで写真スライドショー＋商品詳細表示
  */
-import { searchYahoo, SearchResult, getDetail, AuctionDetail } from "../utils/api-client";
+import { searchYahoo, SearchResult, getDetail, AuctionDetail, checkBackendHealth, isBackendDownError } from "../utils/api-client";
 
 const CONCURRENCY = 3;
 const BATCH_DELAY_MS = 400;
 const OBSERVER_DEBOUNCE_MS = 500;
 
+// バックエンド状態キャッシュ（30秒TTL）
+let backendStatus: { available: boolean; checkedAt: number } | null = null;
+
+async function isBackendAvailable(): Promise<boolean> {
+    const now = Date.now();
+    if (backendStatus && now - backendStatus.checkedAt < 30_000) {
+        return backendStatus.available;
+    }
+    const available = await checkBackendHealth();
+    backendStatus = { available, checkedAt: now };
+    return available;
+}
+
 function extractKeyword(title: string): string {
+    // モデル番号を優先（例: WH-1000XM5, RTX3090, A-67161）
     const match = title.match(/[A-Z]{1,4}[-]?\d{2,5}[A-Z]{0,3}\d{0,4}[A-Z]?(?:[-]\d+)?/i);
     if (match) return match[0];
-    return title.split(/\s+/).slice(0, 3).join(" ");
+    // スペース（全角・半角）で分割して最初の3語、40文字上限
+    const words = title.split(/[\s　]+/).filter(w => w.length > 0);
+    const keyword = words.slice(0, 3).join(" ").slice(0, 40);
+    return keyword || title.slice(0, 20);
 }
 
 function formatPrice(price: number | null): string {
@@ -223,9 +240,34 @@ interface QueueItem {
 const searchQueue: QueueItem[] = [];
 let isProcessing = false;
 
+function renderBackendError(panel: HTMLDivElement, keyword: string) {
+    panel.innerHTML = `
+        <div class="sedori-mini-error" style="font-size:11px;line-height:1.5">
+            ⚠️ バックエンド未起動<br>
+            <span style="opacity:.7">localhost:8000</span><br>
+            <button class="sedori-retry-btn" data-keyword="${keyword.replace(/"/g, "&quot;")}">再試行</button>
+        </div>`;
+    panel.querySelector(".sedori-retry-btn")?.addEventListener("click", () => {
+        // バックエンドキャッシュをリセットして再試行
+        backendStatus = null;
+        searchQueue.push({ keyword, panel });
+        processQueue();
+    });
+}
+
 async function processQueue() {
     if (isProcessing) return;
     isProcessing = true;
+
+    // バックエンド死活確認（最初のバッチ前のみ）
+    const available = await isBackendAvailable();
+    if (!available) {
+        const pending = searchQueue.splice(0);
+        pending.forEach((item) => renderBackendError(item.panel, item.keyword));
+        isProcessing = false;
+        return;
+    }
+
     while (searchQueue.length > 0) {
         const batch = searchQueue.splice(0, CONCURRENCY);
         batch.forEach((item) => {
@@ -236,8 +278,14 @@ async function processQueue() {
                 try {
                     const results = await searchYahoo(item.keyword);
                     renderMiniResults(item.panel, results);
-                } catch {
-                    item.panel.innerHTML = `<div class="sedori-mini-error">エラー</div>`;
+                } catch (err) {
+                    if (isBackendDownError(err)) {
+                        backendStatus = { available: false, checkedAt: Date.now() };
+                        renderBackendError(item.panel, item.keyword);
+                    } else {
+                        const msg = err instanceof Error ? err.message : "Unknown error";
+                        item.panel.innerHTML = `<div class="sedori-mini-error" style="font-size:11px">検索エラー: ${msg.slice(0, 40)}</div>`;
+                    }
                 }
             })
         );

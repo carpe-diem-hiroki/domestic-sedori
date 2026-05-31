@@ -77,3 +77,19 @@ export function getDetail(auctionId: string): Promise<AuctionDetail> {
         `${API_BASE}/yahoo/detail/${encodeURIComponent(auctionId)}`
     );
 }
+
+export function checkBackendHealth(): Promise<boolean> {
+    return fetchViaBackground<{ status: string }>(`${API_BASE}/health`)
+        .then(() => true)
+        .catch(() => false);
+}
+
+export function isBackendDownError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return (
+        msg.includes("Failed to fetch") ||
+        msg.includes("NetworkError") ||
+        msg.includes("net::ERR_CONNECTION_REFUSED") ||
+        msg.includes("Could not establish connection")
+    );
+}
