@@ -28,6 +28,52 @@ def extract_category(title: str) -> str | None:
     return None
 
 
+# 既知の家電ブランド（日本語/英語表記の両方）
+KNOWN_BRANDS = [
+    "パナソニック", "Panasonic", "日立", "HITACHI", "東芝", "TOSHIBA",
+    "シャープ", "SHARP", "三菱", "MITSUBISHI", "ハイセンス", "Hisense",
+    "ハイアール", "Haier", "アイリスオーヤマ", "IRIS", "山善", "YAMAZEN",
+    "アクア", "AQUA", "COMFEE", "コンフィー", "ニトリ", "無印良品",
+    "ツインバード", "TWINBIRD", "コイズミ", "KOIZUMI", "ソニー", "SONY",
+    "シャオミ", "Xiaomi", "バルミューダ", "BALMUDA", "デロンギ", "DeLonghi",
+    "ダイソン", "Dyson", "象印", "ZOJIRUSHI", "タイガー", "TIGER",
+    "ニコン", "Nikon", "キヤノン", "Canon", "フィリップス", "PHILIPS",
+]
+
+# ブランド候補から除外する一般的な英大文字語
+_BRAND_BLOCKLIST = {
+    "FULL", "HD", "HDMI", "LED", "LCD", "USB", "PSE", "PSU", "DC", "AC",
+    "PRO", "MAX", "MINI", "NEW", "SET", "KG", "CM", "LL", "XL", "WIFI",
+}
+
+
+def extract_brand(title: str) -> str | None:
+    """タイトルからブランドを推定（既知ブランド優先、無ければ英大文字語を候補に）"""
+    if not title:
+        return None
+    for b in KNOWN_BRANDS:
+        if b.lower() in title.lower():
+            return b
+    # 既知に無ければ、4文字以上の英大文字トークンをブランド候補とする（例: SAMKYO, ASUMU）
+    for tok in re.findall(r"[A-Z][A-Z0-9]{3,}", title):
+        if tok not in _BRAND_BLOCKLIST and not re.fullmatch(r"\d+[A-Z]+", tok):
+            return tok
+    return None
+
+
+def extract_model_tokens(title: str) -> list[str]:
+    """型番らしいトークン（英字＋数字、容量を除く）を抽出"""
+    toks: list[str] = []
+    for m in re.findall(r"[A-Za-z]{1,5}-?\d{2,}[A-Za-z0-9-]*", title or ""):
+        up = m.upper()
+        # 容量・サイズ（5KG, 175L, 32型相当）は除外
+        if re.fullmatch(r"\d+(?:KG|L|CM|W)", up):
+            continue
+        if len(up) >= 3:
+            toks.append(up)
+    return toks
+
+
 def _significant_tokens(text: str) -> set[str]:
     """関連性判定に使う有意トークンを抽出"""
     text = text or ""
@@ -56,15 +102,21 @@ _STOPWORDS = {
 def build_search_keyword(title: str) -> str:
     """検索精度の高いキーワードを生成
 
-    方針: 「カテゴリ語 + 容量/サイズ」を優先。
-    （単独の型番トークンは別ジャンルに誤爆しやすいので避ける）
+    方針: 「ブランド + カテゴリ」を最優先（同一商品に絞るため）。
+    ブランドが取れなければ「カテゴリ + 容量」、それも無ければ先頭語。
     """
     cat = extract_category(title)
+    brand = extract_brand(title)
     cap = re.search(r"\d+\.?\d*(?:kg|L|インチ|型)", title or "", re.I)
+
+    if brand and cat:
+        return f"{brand} {cat}"
     if cat and cap:
         return f"{cat} {cap.group(0)}"
     if cat:
         return cat
+    if brand:
+        return brand
     # フォールバック: 先頭の有意語を数個
     words = [w for w in re.split(r"[\s　]+", title or "") if w]
     return " ".join(words[:3])[:40] or (title or "")[:20]
@@ -81,21 +133,35 @@ def relevance_score(amazon_title: str, yahoo_title: str) -> float:
 
 
 def is_relevant(amazon_title: str, yahoo_title: str, threshold: float = 0.1) -> bool:
-    """関連性判定
+    """関連性判定（同一商品レベルの精度）
 
-    - カテゴリ語が取れる場合: ヤフオク側に同じカテゴリ語が含まれることを必須にする
-      （洗濯機↔カメラ のようなジャンル違いを確実に除外）。
-    - その上でトークン重複が閾値以上なら関連とみなす。
-    Amazonタイトルはキーワード過多で重複率が下がりやすいため、
-    カテゴリ一致を主軸にし、閾値は低めに設定する。
+    1. カテゴリ語が取れる場合は、ヤフオク側にも同カテゴリ語が必須（ジャンル違いを除外）。
+    2. さらに「ブランド」または「型番」がヤフオク側に一致することを必須にする
+       （別ブランド・別型番の同カテゴリ品＝別商品を除外）。
+       例: SAMKYO B500 洗濯機 ↔ シャープ ES-GE7H-T 洗濯機 は不一致で除外。
+    3. ブランドも型番も取れない商品は、トークン重複率で判定（フォールバック）。
     """
+    yahoo = yahoo_title or ""
+    yahoo_lower = yahoo.lower()
+
     cat = extract_category(amazon_title)
-    if cat:
-        if cat not in (yahoo_title or ""):
-            return False
-        return True  # 同一カテゴリ語が一致すれば関連とみなす
-    # カテゴリ不明な商品はトークン重複で判定
-    return relevance_score(amazon_title, yahoo_title) >= threshold
+    if cat and cat not in yahoo:
+        return False  # カテゴリ違いは即除外
+
+    brand = extract_brand(amazon_title)
+    models = extract_model_tokens(amazon_title)
+
+    # ブランド or 型番のいずれかが一致すれば「同一商品候補」
+    if brand and brand.lower() in yahoo_lower:
+        return True
+    if any(m in yahoo.upper() for m in models):
+        return True
+
+    # ブランド・型番が特定できない商品のみ、トークン重複でフォールバック判定
+    if not brand and not models:
+        return relevance_score(amazon_title, yahoo_title) >= threshold
+
+    return False
 
 
 def representative_price(prices: list[int]) -> int | None:

@@ -86,22 +86,72 @@ function extractCategory(title: string): string | null {
     return null;
 }
 
+// 既知の家電ブランド
+const KNOWN_BRANDS = [
+    "パナソニック", "Panasonic", "日立", "HITACHI", "東芝", "TOSHIBA",
+    "シャープ", "SHARP", "三菱", "MITSUBISHI", "ハイセンス", "Hisense",
+    "ハイアール", "Haier", "アイリスオーヤマ", "IRIS", "山善", "YAMAZEN",
+    "アクア", "AQUA", "COMFEE", "コンフィー", "ニトリ", "無印良品",
+    "ツインバード", "TWINBIRD", "コイズミ", "KOIZUMI", "ソニー", "SONY",
+    "シャオミ", "Xiaomi", "バルミューダ", "BALMUDA", "デロンギ", "DeLonghi",
+    "ダイソン", "Dyson", "象印", "ZOJIRUSHI", "タイガー", "TIGER",
+    "ニコン", "Nikon", "キヤノン", "Canon", "フィリップス", "PHILIPS",
+];
+const BRAND_BLOCKLIST = new Set([
+    "FULL", "HD", "HDMI", "LED", "LCD", "USB", "PSE", "PSU", "DC", "AC",
+    "PRO", "MAX", "MINI", "NEW", "SET", "KG", "CM", "LL", "XL", "WIFI",
+]);
+
+function extractBrand(title: string): string | null {
+    const lower = title.toLowerCase();
+    for (const b of KNOWN_BRANDS) {
+        if (lower.includes(b.toLowerCase())) return b;
+    }
+    // 既知に無ければ4文字以上の英大文字トークンを候補に（例: SAMKYO）
+    const m = title.match(/[A-Z][A-Z0-9]{3,}/g) || [];
+    for (const tok of m) {
+        if (!BRAND_BLOCKLIST.has(tok) && !/^\d+[A-Z]+$/.test(tok)) return tok;
+    }
+    return null;
+}
+
+function extractModelTokens(title: string): string[] {
+    const toks: string[] = [];
+    const m = title.match(/[A-Za-z]{1,5}-?\d{2,}[A-Za-z0-9-]*/g) || [];
+    for (const t of m) {
+        const up = t.toUpperCase();
+        if (/^\d+(?:KG|L|CM|W)$/.test(up)) continue; // 容量除外
+        if (up.length >= 3) toks.push(up);
+    }
+    return toks;
+}
+
 function extractKeyword(title: string): string {
-    // カテゴリ語＋容量/サイズ を優先（単独型番は別ジャンルへ誤爆するため避ける）
+    // ブランド＋カテゴリ を最優先（同一商品に絞る）
     const cat = extractCategory(title);
+    const brand = extractBrand(title);
     const cap = title.match(/\d+\.?\d*(?:kg|L|インチ|型)/i);
+    if (brand && cat) return `${brand} ${cat}`;
     if (cat && cap) return `${cat} ${cap[0]}`;
     if (cat) return cat;
-    // フォールバック: 先頭3語
+    if (brand) return brand;
     const words = title.split(/[\s　]+/).filter((w) => w.length > 0);
     return words.slice(0, 3).join(" ").slice(0, 40) || title.slice(0, 20);
 }
 
-/** Amazon商品タイトルとヤフオク出品タイトルが同カテゴリか（誤マッチ除外） */
+/** 同一商品レベルの関連性判定: カテゴリ一致＋ブランドor型番一致を必須 */
 function isRelevant(amazonTitle: string, yahooTitle: string): boolean {
+    const yahoo = yahooTitle || "";
     const cat = extractCategory(amazonTitle);
-    if (cat) return yahooTitle.includes(cat);
-    return true; // カテゴリ不明なら除外しない
+    if (cat && !yahoo.includes(cat)) return false; // ジャンル違い除外
+
+    const brand = extractBrand(amazonTitle);
+    const models = extractModelTokens(amazonTitle);
+    if (brand && yahoo.toLowerCase().includes(brand.toLowerCase())) return true;
+    if (models.some((m) => yahoo.toUpperCase().includes(m))) return true;
+    // ブランドも型番も無い商品のみ、カテゴリ一致で許容
+    if (!brand && models.length === 0) return cat ? yahoo.includes(cat) : true;
+    return false;
 }
 
 /** 中央値（1円開始などの外れ値の影響を抑える） */
