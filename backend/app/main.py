@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine
+from app.migrations import run_migrations
 from app.models import Base
 from app.routers import amazon, listings, monitor, notifications, pricing, scheduler, templates, yahoo
 
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
     """起動時にDBテーブルを自動作成 + スケジューラー起動、終了時に停止"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await run_migrations(conn)
 
     if settings.scheduler_auto_start:
         from app.services.scheduler import start_scheduler

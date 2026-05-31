@@ -7,8 +7,15 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.database import async_session
-from app.models import Auction, Notification, ProductAuctionLink
+from app.models import (
+    Auction,
+    Notification,
+    PriceSnapshot,
+    Product,
+    ProductAuctionLink,
+)
 from app.scrapers.yahoo_detail import get_auction_detail
+from app.services.pricing import calculate_pricing
 
 logger = logging.getLogger(__name__)
 
@@ -20,30 +27,27 @@ async def check_monitored_auctions():
     logger.info("Starting scheduled auction check...")
 
     async with async_session() as db:
-        # 監視中 + activeのオークションを取得
+        # 監視中 + activeのオークションを link・product と一緒に取得
         result = await db.execute(
-            select(Auction)
-            .join(
-                ProductAuctionLink,
-                ProductAuctionLink.auction_id == Auction.id,
-            )
+            select(ProductAuctionLink, Auction, Product)
+            .join(Auction, ProductAuctionLink.auction_id == Auction.id)
+            .join(Product, ProductAuctionLink.product_id == Product.id)
             .where(
                 ProductAuctionLink.is_monitoring.is_(True),
                 Auction.status == "active",
             )
-            .distinct()
         )
-        auctions = result.scalars().all()
+        rows = result.all()
 
-        if not auctions:
+        if not rows:
             logger.info("No active monitored auctions to check")
             return
 
-        logger.info(f"Checking {len(auctions)} auctions...")
+        logger.info(f"Checking {len(rows)} auctions...")
         updated = 0
         ended = 0
 
-        for auction in auctions:
+        for link, auction, product in rows:
             try:
                 detail = await get_auction_detail(auction.auction_id)
                 if not detail:
@@ -103,6 +107,10 @@ async def check_monitored_auctions():
                     db.add(notification)
 
                 auction.last_checked = now
+
+                # 価格推移グラフ用スナップショットを記録
+                _record_snapshot(db, link, auction, product)
+
                 updated += 1
 
             except Exception as e:
@@ -112,6 +120,35 @@ async def check_monitored_auctions():
         logger.info(
             f"Check complete: {updated} updated, {ended} ended"
         )
+
+
+def _record_snapshot(db, link, auction, product) -> None:
+    """価格推移スナップショットを1件追加する
+
+    yahoo_price: ヤフオク現在価格
+    amazon_price: Amazon販売価格（Product.amazon_price）
+    profit_rate: 両者から算出した想定利益率（両方あるときのみ）
+    """
+    yahoo_price = auction.current_price
+    amazon_price = product.amazon_price
+
+    profit_rate = None
+    if amazon_price and yahoo_price:
+        calc = calculate_pricing(
+            selling_price=amazon_price,
+            expected_winning_price=yahoo_price,
+            category=product.category,
+        )
+        profit_rate = calc.profit_rate
+
+    db.add(
+        PriceSnapshot(
+            link_id=link.id,
+            yahoo_price=yahoo_price,
+            amazon_price=amazon_price,
+            profit_rate=profit_rate,
+        )
+    )
 
 
 def start_scheduler():

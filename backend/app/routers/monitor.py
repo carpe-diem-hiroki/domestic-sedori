@@ -1,4 +1,5 @@
 """監視対象管理APIエンドポイント"""
+from datetime import datetime, timedelta
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Auction, Product, ProductAuctionLink
+from app.models import Auction, PriceSnapshot, Product, ProductAuctionLink
 
 router = APIRouter(prefix="/api/monitor", tags=["monitor"])
 
@@ -48,6 +49,13 @@ class MonitorResponse(BaseModel):
 class MonitorListResponse(BaseModel):
     items: list[MonitorResponse]
     total: int
+
+
+class SnapshotPoint(BaseModel):
+    captured_at: str
+    yahoo_price: int | None
+    amazon_price: int | None
+    profit_rate: float | None
 
 
 # --- エンドポイント ---
@@ -161,6 +169,34 @@ async def list_monitors(
     ]
 
     return MonitorListResponse(items=items, total=len(items))
+
+
+@router.get("/{link_id}/snapshots", response_model=list[SnapshotPoint])
+async def get_snapshots(
+    link_id: int,
+    days: int = Query(30, ge=1, le=365, description="取得日数"),
+    db: AsyncSession = Depends(get_db),
+):
+    """価格推移グラフ用の時系列データを取得（古い順）"""
+    since = datetime.now() - timedelta(days=days)
+    result = await db.execute(
+        select(PriceSnapshot)
+        .where(
+            PriceSnapshot.link_id == link_id,
+            PriceSnapshot.captured_at >= since,
+        )
+        .order_by(PriceSnapshot.captured_at.asc())
+    )
+    snapshots = result.scalars().all()
+    return [
+        SnapshotPoint(
+            captured_at=s.captured_at.isoformat(),
+            yahoo_price=s.yahoo_price,
+            amazon_price=s.amazon_price,
+            profit_rate=s.profit_rate,
+        )
+        for s in snapshots
+    ]
 
 
 @router.get("/{link_id}", response_model=MonitorResponse)

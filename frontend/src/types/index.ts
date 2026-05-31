@@ -123,7 +123,19 @@ export interface ListingItem {
   quantity: number;
   status: string;
   description: string | null;
+  actual_purchase_price: number | null;
+  min_price: number | null;
+  sold_price: number | null;
+  sold_date: string | null;
+  actual_profit: number | null;
   created_at: string;
+}
+
+export interface SnapshotPoint {
+  captured_at: string;
+  yahoo_price: number | null;
+  amazon_price: number | null;
+  profit_rate: number | null;
 }
 
 export interface NotificationItem {

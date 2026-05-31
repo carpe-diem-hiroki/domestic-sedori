@@ -10,6 +10,7 @@ import type {
   PricingResult,
   SchedulerStatus,
   SearchResult,
+  SnapshotPoint,
   Template,
 } from "../types";
 
@@ -62,6 +63,9 @@ const api = {
 
   getMonitor: (id: number) =>
     fetchJson<MonitorItem>(`${API}/monitor/${id}`),
+
+  getSnapshots: (id: number, days = 30) =>
+    fetchJson<SnapshotPoint[]>(`${API}/monitor/${id}/snapshots?days=${days}`),
 
   removeMonitor: (id: number) =>
     fetchJson<{ message: string }>(`${API}/monitor/${id}`, {
@@ -120,6 +124,8 @@ const api = {
     lead_time_days?: number;
     description?: string | null;
     template_id?: number | null;
+    actual_purchase_price?: number | null;
+    min_price?: number | null;
   }) =>
     fetchJson<ListingItem>(`${API}/listings/`, {
       method: "POST",
@@ -136,10 +142,27 @@ const api = {
       lead_time_days?: number;
       description?: string;
       status?: string;
+      actual_purchase_price?: number;
+      min_price?: number;
     }
   ) =>
     fetchJson<ListingItem>(`${API}/listings/${id}`, {
       method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+
+  markListingSold: (
+    id: number,
+    data: {
+      sold_price?: number;
+      sold_date?: string;
+      shipping_cost?: number;
+      category?: string;
+    }
+  ) =>
+    fetchJson<ListingItem>(`${API}/listings/${id}/sold`, {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }),

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useApi } from "../hooks/useApi";
 import { formatPrice } from "../utils/format";
+import { PriceChart } from "../components/PriceChart";
 import type {
   AuctionDetail,
   HistoryResponse,
@@ -396,6 +397,9 @@ export function MonitorDetail() {
           </tbody>
         </table>
       </div>
+
+      {/* 価格推移グラフ */}
+      {id && <PriceChart linkId={parseInt(id, 10)} />}
 
       {/* 落札履歴 */}
       <div className="card">

@@ -4,6 +4,7 @@ from app.models.listing import Listing
 from app.models.notification import Notification
 from app.models.order import Order, ShippingRate, Template
 from app.models.product import Product
+from app.models.snapshot import PriceSnapshot
 
 __all__ = [
     "Base",
@@ -16,4 +17,5 @@ __all__ = [
     "ShippingRate",
     "Template",
     "Notification",
+    "PriceSnapshot",
 ]

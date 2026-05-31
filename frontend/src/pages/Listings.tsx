@@ -27,8 +27,17 @@ function ListingCard({ listing, monitors, onUpdate }: ListingCardProps) {
   const [editCondition, setEditCondition] = useState(listing.sub_condition);
   const [editLeadTime, setEditLeadTime] = useState(listing.lead_time_days);
   const [editDescription, setEditDescription] = useState(listing.description ?? "");
+  const [editPurchase, setEditPurchase] = useState(listing.actual_purchase_price ?? 0);
+  const [editMinPrice, setEditMinPrice] = useState(listing.min_price ?? 0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+
+  // 売却フォーム
+  const [soldMode, setSoldMode] = useState(false);
+  const [soldPrice, setSoldPrice] = useState(listing.price);
+  const [soldShipping, setSoldShipping] = useState(800);
+  const [soldSaving, setSoldSaving] = useState(false);
+  const [soldError, setSoldError] = useState("");
 
   useEffect(() => {
     api
@@ -53,6 +62,8 @@ function ListingCard({ listing, monitors, onUpdate }: ListingCardProps) {
         sub_condition: editCondition,
         lead_time_days: editLeadTime,
         description: editDescription || undefined,
+        actual_purchase_price: editPurchase > 0 ? editPurchase : undefined,
+        min_price: editMinPrice > 0 ? editMinPrice : undefined,
       });
       onUpdate(updated);
       setEditMode(false);
@@ -62,6 +73,32 @@ function ListingCard({ listing, monitors, onUpdate }: ListingCardProps) {
       setSaving(false);
     }
   };
+
+  const handleSold = async () => {
+    setSoldSaving(true);
+    setSoldError("");
+    try {
+      const updated = await api.markListingSold(listing.id, {
+        sold_price: soldPrice,
+        shipping_cost: soldShipping,
+      });
+      onUpdate(updated);
+      setSoldMode(false);
+    } catch (err) {
+      setSoldError(err instanceof Error ? err.message : "記録に失敗しました");
+    } finally {
+      setSoldSaving(false);
+    }
+  };
+
+  // 想定利益（仕入れ値が登録されている場合）= 販売価格 - 仕入れ - 手数料15% - 送料800
+  const estimatedProfit =
+    listing.actual_purchase_price != null
+      ? listing.price -
+        listing.actual_purchase_price -
+        Math.round(listing.price * 0.15) -
+        800
+      : null;
 
   const asinUrl = `https://www.amazon.co.jp/dp/${listing.asin}`;
   const inputCss: React.CSSProperties = {
@@ -230,6 +267,162 @@ function ListingCard({ listing, monitors, onUpdate }: ListingCardProps) {
         )}
       </div>
 
+      {/* 実績管理バー */}
+      {listing.status === "sold" ? (
+        <div
+          style={{
+            display: "flex",
+            gap: 20,
+            alignItems: "center",
+            background: "#e8f5e9",
+            border: "1px solid #a5d6a7",
+            borderRadius: 6,
+            padding: "10px 14px",
+            marginBottom: 12,
+            fontSize: 13,
+          }}
+        >
+          <span style={{ fontWeight: 600, color: "#2e7d32" }}>✓ 売却済み</span>
+          {listing.sold_date && (
+            <span style={{ color: "#666" }}>
+              {listing.sold_date.slice(0, 10)}
+            </span>
+          )}
+          <span>
+            売値:{" "}
+            <strong className="price">
+              {listing.sold_price?.toLocaleString()}円
+            </strong>
+          </span>
+          {listing.actual_purchase_price != null && (
+            <span style={{ color: "#666" }}>
+              仕入: {listing.actual_purchase_price.toLocaleString()}円
+            </span>
+          )}
+          {listing.actual_profit != null && (
+            <span>
+              実績利益:{" "}
+              <strong
+                className={
+                  listing.actual_profit >= 0
+                    ? "profit-positive"
+                    : "profit-negative"
+                }
+              >
+                {listing.actual_profit.toLocaleString()}円
+              </strong>
+            </span>
+          )}
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            gap: 20,
+            alignItems: "center",
+            background: "#fafafa",
+            border: "1px solid #eee",
+            borderRadius: 6,
+            padding: "10px 14px",
+            marginBottom: 12,
+            fontSize: 13,
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ color: "#666" }}>
+            仕入れ値:{" "}
+            {listing.actual_purchase_price != null ? (
+              <strong>{listing.actual_purchase_price.toLocaleString()}円</strong>
+            ) : (
+              <span style={{ color: "#bbb" }}>未登録</span>
+            )}
+          </span>
+          {listing.min_price != null && (
+            <span style={{ color: "#666" }}>
+              最低価格: {listing.min_price.toLocaleString()}円
+            </span>
+          )}
+          {estimatedProfit != null && (
+            <span style={{ color: "#666" }}>
+              想定利益:{" "}
+              <strong
+                className={
+                  estimatedProfit >= 0 ? "profit-positive" : "profit-negative"
+                }
+              >
+                {estimatedProfit.toLocaleString()}円
+              </strong>
+            </span>
+          )}
+          <button
+            type="button"
+            className="btn btn-success btn-sm"
+            style={{ marginLeft: "auto" }}
+            onClick={() => {
+              setSoldMode(!soldMode);
+              setSoldPrice(listing.price);
+              setSoldError("");
+            }}
+          >
+            💰 売れた
+          </button>
+        </div>
+      )}
+
+      {/* 売却記録フォーム */}
+      {soldMode && listing.status !== "sold" && (
+        <div
+          style={{
+            background: "#f1f8e9",
+            border: "1px solid #c5e1a5",
+            borderRadius: 6,
+            padding: 12,
+            marginBottom: 12,
+            display: "flex",
+            gap: 16,
+            alignItems: "flex-end",
+            flexWrap: "wrap",
+          }}
+        >
+          <label style={{ fontSize: 13 }}>
+            <div style={{ marginBottom: 4, color: "#666" }}>売れた価格</div>
+            <input
+              type="number"
+              value={soldPrice}
+              onChange={(e) => setSoldPrice(Number(e.target.value))}
+              style={{ ...inputCss, width: 110 }}
+            />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            <div style={{ marginBottom: 4, color: "#666" }}>送料</div>
+            <input
+              type="number"
+              value={soldShipping}
+              onChange={(e) => setSoldShipping(Number(e.target.value))}
+              style={{ ...inputCss, width: 90 }}
+            />
+          </label>
+          {soldError && (
+            <div style={{ fontSize: 13, color: "#bf360c" }}>{soldError}</div>
+          )}
+          <button
+            type="button"
+            className="btn btn-success btn-sm"
+            onClick={handleSold}
+            disabled={soldSaving}
+          >
+            {soldSaving ? "記録中..." : "売却を記録"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setSoldMode(false)}
+          >
+            キャンセル
+          </button>
+        </div>
+      )}
+
       {/* 出品情報を編集ボタン */}
       <div style={{ marginBottom: editMode ? 10 : 12 }}>
         <button
@@ -324,6 +517,30 @@ function ListingCard({ listing, monitors, onUpdate }: ListingCardProps) {
               </tr>
             </tbody>
           </table>
+
+          {/* 仕入れ値・最低価格 */}
+          <div style={{ display: "flex", gap: 16, marginBottom: 10 }}>
+            <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
+              仕入れ値（落札価格）
+              <input
+                type="number"
+                value={editPurchase}
+                onChange={(e) => setEditPurchase(Number(e.target.value))}
+                style={{ ...inputCss, width: 90 }}
+              />
+              円
+            </label>
+            <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
+              最低価格（値下げ下限）
+              <input
+                type="number"
+                value={editMinPrice}
+                onChange={(e) => setEditMinPrice(Number(e.target.value))}
+                style={{ ...inputCss, width: 90 }}
+              />
+              円
+            </label>
+          </div>
 
           <textarea
             value={editDescription}
