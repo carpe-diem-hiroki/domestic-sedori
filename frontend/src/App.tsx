@@ -1,6 +1,7 @@
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { Research } from "./pages/Research";
+import { PriceDiff } from "./pages/PriceDiff";
 import { MonitorList } from "./pages/MonitorList";
 import { MonitorDetail } from "./pages/MonitorDetail";
 import { MonitorAdd } from "./pages/MonitorAdd";
@@ -29,6 +30,7 @@ export function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Navigate to="/monitors" replace />} />
           <Route path="/research" element={<Research />} />
+          <Route path="/price-diff" element={<PriceDiff />} />
           <Route path="/monitors" element={<MonitorList />} />
           <Route path="/monitors/:id" element={<MonitorDetail />} />
           <Route path="/monitor/add" element={<MonitorAdd />} />

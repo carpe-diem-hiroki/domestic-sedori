@@ -8,6 +8,7 @@ import type {
   ListingItem,
   MonitorItem,
   NotificationListResponse,
+  PriceDiffResponse,
   PricingResult,
   SchedulerStatus,
   SearchResult,
@@ -71,6 +72,13 @@ const api = {
 
   getStats: (period: "month" | "all" = "month") =>
     fetchJson<StatsSummary>(`${API}/stats/summary?period=${period}`),
+
+  bulkPriceDiff: (query: string, shippingCost = 800) =>
+    fetchJson<PriceDiffResponse>(`${API}/research/price-diff`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, shipping_cost: shippingCost }),
+    }),
 
   listChances: (minProfitRate?: number, minProfitAmount?: number) => {
     const params = new URLSearchParams();

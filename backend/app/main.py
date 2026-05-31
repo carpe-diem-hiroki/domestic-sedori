@@ -16,7 +16,7 @@ from app.config import settings
 from app.database import engine
 from app.migrations import run_migrations
 from app.models import Base
-from app.routers import amazon, keepa, listings, monitor, notifications, pricing, scheduler, stats, templates, yahoo
+from app.routers import amazon, keepa, listings, monitor, notifications, pricing, research, scheduler, stats, templates, yahoo
 
 # ログ設定
 logging.basicConfig(
@@ -67,6 +67,7 @@ app.include_router(pricing.router)
 app.include_router(amazon.router)
 app.include_router(listings.router)
 app.include_router(stats.router)
+app.include_router(research.router)
 app.include_router(keepa.router)
 app.include_router(templates.router)
 app.include_router(notifications.router)

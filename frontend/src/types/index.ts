@@ -158,6 +158,26 @@ export interface ChanceListResponse {
   min_profit_amount: number;
 }
 
+export interface PriceDiffRow {
+  asin: string;
+  amazon_title: string;
+  amazon_price: number | null;
+  amazon_image: string | null;
+  yahoo_count: number;
+  best_yahoo_price: number | null;
+  best_yahoo_url: string | null;
+  best_yahoo_title: string | null;
+  profit: number | null;
+  profit_rate: number | null;
+  error: string | null;
+}
+
+export interface PriceDiffResponse {
+  mode: string;
+  items: PriceDiffRow[];
+  total: number;
+}
+
 export interface StatsSummary {
   period: string;
   inventory: { active_count: number; total_price: number };
