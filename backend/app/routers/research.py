@@ -17,6 +17,7 @@ from app.database import async_session
 from app.scrapers.amazon_listing import _is_amazon_listing_url, harvest_amazon_listing
 from app.scrapers.amazon_product import get_amazon_product
 from app.scrapers.yahoo_search import search_yahoo_auctions
+from app.services import keepa
 from app.services.matching import (
     build_search_keyword,
     is_relevant,
@@ -35,6 +36,7 @@ AMAZON_CONCURRENCY = 3
 class PriceDiffRequest(BaseModel):
     query: str          # Amazon一覧URL もしくは 改行/空白/カンマ区切りのASIN列
     shipping_cost: int = 800
+    use_keepa: bool = True  # Keepa有効時にJAN/型番で精度を上げる
 
 
 class PriceDiffRow(BaseModel):
@@ -110,6 +112,26 @@ async def _get_amazon_for_asin(asin: str) -> tuple[str, int | None, str | None, 
     return amzn.title or "", amzn.price, amzn.image_url, amzn.category
 
 
+def _norm(s: str) -> str:
+    """型番比較用の正規化（スペース・ハイフン除去、大文字化）"""
+    return re.sub(r"[\s　\-]", "", s or "").upper()
+
+
+def _identity_relevant(
+    amazon_title: str, yahoo_title: str, jan_codes: list[str], model: str | None
+) -> bool:
+    """JAN/型番を最上位キーにした関連性判定。無ければタイトルベースにフォールバック"""
+    y = yahoo_title or ""
+    # JAN一致＝最高精度の同定
+    for j in jan_codes:
+        if j and len(j) >= 8 and j in y:
+            return True
+    # 型番一致（スペース/ハイフン差を吸収、4文字以上で誤爆抑制）
+    if model and len(_norm(model)) >= 4 and _norm(model) in _norm(y):
+        return True
+    return is_relevant(amazon_title, yahoo_title)
+
+
 async def _build_row(
     asin: str,
     title: str,
@@ -118,9 +140,17 @@ async def _build_row(
     category: str | None,
     shipping_cost: int,
     sem: asyncio.Semaphore,
+    jan_codes: list[str] | None = None,
+    model: str | None = None,
 ) -> PriceDiffRow:
     """1商品分: ヤフオク検索→関連性フィルタ→相場(中央値)→利益を計算"""
-    keyword = build_search_keyword(title) if title else asin
+    jan_codes = jan_codes or []
+    # 検索キーワード: 型番があれば最優先（同一商品に直撃）、無ければタイトルベース
+    if model and len(_norm(model)) >= 4:
+        keyword = model
+    else:
+        keyword = build_search_keyword(title) if title else asin
+
     async with sem:
         try:
             results = await search_yahoo_auctions(keyword)
@@ -132,10 +162,11 @@ async def _build_row(
                 profit_rate=None, error=f"Y!検索失敗: {e}",
             )
 
-    # 関連性フィルタ: カテゴリ違い・無関係な商品を除外（誤マッチ防止）
+    # 関連性フィルタ: JAN/型番優先＋カテゴリ/容量で誤マッチ防止
     relevant = [
         r for r in results
-        if r.current_price is not None and is_relevant(title, r.title)
+        if r.current_price is not None
+        and _identity_relevant(title, r.title, jan_codes, model)
     ]
 
     if not relevant:
@@ -178,23 +209,40 @@ async def _build_row(
     )
 
 
+async def _keepa_identity(asin: str, enabled: bool) -> tuple[list[str], str | None]:
+    """Keepa有効時にASINのJAN/型番を取得（失敗・無効時は空）"""
+    if not enabled:
+        return [], None
+    try:
+        ident = await keepa.fetch_product_identity(asin)
+        if ident:
+            return ident.jan_codes, ident.model
+    except Exception as e:
+        logger.warning(f"Keepa identity failed for {asin}: {e}")
+    return [], None
+
+
 @router.post("/price-diff", response_model=PriceDiffResponse)
 async def price_diff(req: PriceDiffRequest):
     """Amazon一覧URL もしくは ASINリストから価格差を一括算出"""
     query = req.query.strip()
     sem = asyncio.Semaphore(YAHOO_CONCURRENCY)
+    use_keepa = req.use_keepa and keepa.is_enabled()
+    keepa_sem = asyncio.Semaphore(AMAZON_CONCURRENCY)
 
     if _is_amazon_listing_url(query):
         # URLモード: 一覧ページから ASIN・タイトル・価格を自動収集
         cards = await harvest_amazon_listing(query, limit=MAX_ITEMS)
-        tasks = [
-            _build_row(
+
+        async def build_card(c) -> PriceDiffRow:
+            async with keepa_sem:
+                jan, model = await _keepa_identity(c.asin, use_keepa)
+            return await _build_row(
                 c.asin, c.title, c.price, c.image_url, None,
-                req.shipping_cost, sem,
+                req.shipping_cost, sem, jan_codes=jan, model=model,
             )
-            for c in cards
-        ]
-        rows = await asyncio.gather(*tasks)
+
+        rows = await asyncio.gather(*[build_card(c) for c in cards])
         mode = "url"
     else:
         # ASINモード: 各ASINのAmazon情報を取得（DBキャッシュ優先）
@@ -211,8 +259,10 @@ async def price_diff(req: PriceDiffRequest):
                     best_yahoo_url=None, best_yahoo_title=None, profit=None,
                     profit_rate=None, error="Amazon商品取得失敗（CAPTCHA等）",
                 )
+            jan, model = await _keepa_identity(asin, use_keepa)
             return await _build_row(
-                asin, title, price, image, category, req.shipping_cost, sem
+                asin, title, price, image, category, req.shipping_cost, sem,
+                jan_codes=jan, model=model,
             )
 
         rows = await asyncio.gather(*[fetch_and_build(a) for a in asins])

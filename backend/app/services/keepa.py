@@ -39,6 +39,52 @@ class KeepaPricePoint:
     price: int        # 円（-1はデータなしとして除外済み）
 
 
+@dataclass
+class KeepaIdentity:
+    """ASINから得られる商品同定情報（マッチングの最上位キー）"""
+    asin: str
+    title: str | None
+    brand: str | None
+    model: str | None          # メーカー型番（model / partNumber）
+    jan_codes: list[str]       # JAN/EAN（最高精度のクロスプラットフォーム識別子）
+
+
+async def fetch_product_identity(asin: str) -> KeepaIdentity | None:
+    """ASINからブランド・型番・JAN(EAN)を取得（価格履歴は取らない=軽量）
+
+    Amazonをスクレイプしないためボットチェックを受けない。
+    未設定時は RuntimeError。呼び出し側で is_enabled() を確認すること。
+    """
+    if not is_enabled():
+        raise RuntimeError("Keepa API key is not configured")
+
+    params = {
+        "key": settings.keepa_api_key,
+        "domain": settings.keepa_domain,
+        "asin": asin,
+        "stats": 0,
+        "history": 0,
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{KEEPA_BASE}/product", params=params)
+        resp.raise_for_status()
+        data = resp.json()
+
+    products = data.get("products") or []
+    if not products:
+        return None
+    p = products[0]
+    model = p.get("model") or p.get("partNumber")
+    jan = [str(e) for e in (p.get("eanList") or [])]
+    return KeepaIdentity(
+        asin=asin,
+        title=p.get("title"),
+        brand=p.get("brand"),
+        model=model,
+        jan_codes=jan,
+    )
+
+
 def _parse_csv_series(csv: list[int] | None) -> list[KeepaPricePoint]:
     """KeepaのCSV配列 [t0, v0, t1, v1, ...] を価格ポイント列に変換"""
     if not csv:
