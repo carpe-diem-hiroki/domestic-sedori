@@ -3,13 +3,16 @@ import { useApi } from "../hooks/useApi";
 import { formatPrice } from "../utils/format";
 import type { PriceDiffResponse } from "../types";
 
-const PLACEHOLDER = `Amazonのカテゴリ/検索ページのURLを貼り付け（自動でASINを収集）
-例: https://www.amazon.co.jp/s?k=家電
+const PLACEHOLDER = `① Amazonのカテゴリ/検索/ランキングURL（全ASINを自動収集）
+  例: https://www.amazon.co.jp/s?k=家電
+  例: https://www.amazon.co.jp/gp/bestsellers/appliances（売れ筋ランキング）
 
-または ASIN を改行・スペースで複数指定
-例:
-B09XYDQZV6
-B08N5WRWNW`;
+② ブログ記事などのURL（中のAmazon商品リンクからASINを収集）
+
+③ ASIN を改行・スペースで複数指定
+  例:
+  B09XYDQZV6
+  B08N5WRWNW`;
 
 export function PriceDiff() {
   const api = useApi();

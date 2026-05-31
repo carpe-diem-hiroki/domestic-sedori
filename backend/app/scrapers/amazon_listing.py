@@ -64,6 +64,44 @@ def _is_amazon_listing_url(url: str) -> bool:
     )
 
 
+# 任意ページ内のAmazon商品リンクからASINを拾う正規表現
+_ASIN_LINK_RE = re.compile(
+    r"amazon\.co\.jp/(?:[^\s\"']*?/)?(?:dp|gp/product|gp/aw/d|gp/offer-listing)/([A-Z0-9]{10})",
+    re.I,
+)
+
+
+async def harvest_asins_from_url(url: str, limit: int = 30) -> list[str]:
+    """任意のWebページ（ブログ記事等）からAmazon商品のASINを抽出する。
+
+    ページHTML内の amazon.co.jp/dp/ASIN 形式リンクを拾って重複排除して返す。
+    Amazon以外のサイト（せどりブログ等）でも、Amazon商品にリンクしていれば収集できる。
+    """
+    async with get_browser() as browser:
+        async with get_page(browser) as page:
+            success = await fetch_with_retry(
+                page, url,
+                delay_min=settings.yahoo_search_delay_min,
+                delay_max=settings.yahoo_search_delay_max,
+            )
+            if not success:
+                logger.error(f"Failed to load page: {url}")
+                return []
+            html = await page.content()
+
+    seen: set[str] = set()
+    asins: list[str] = []
+    for m in _ASIN_LINK_RE.finditer(html):
+        a = m.group(1).upper()
+        if a not in seen:
+            seen.add(a)
+            asins.append(a)
+            if len(asins) >= limit:
+                break
+    logger.info(f"Harvested {len(asins)} ASIN links from {url}")
+    return asins
+
+
 async def harvest_amazon_listing(url: str, limit: int = 30) -> list[ListingCard]:
     """Amazon一覧ページURLから商品カードを収集（先頭limit件）"""
     async with get_browser() as browser:

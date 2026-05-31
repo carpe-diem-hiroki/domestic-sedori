@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session
-from app.scrapers.amazon_listing import _is_amazon_listing_url, harvest_amazon_listing
+from app.scrapers.amazon_listing import (
+    _is_amazon_listing_url,
+    harvest_amazon_listing,
+    harvest_asins_from_url,
+)
 from app.scrapers.amazon_product import get_amazon_product
 from app.scrapers.yahoo_search import search_yahoo_auctions
 from app.services import keepa
@@ -245,8 +249,12 @@ async def price_diff(req: PriceDiffRequest):
         rows = await asyncio.gather(*[build_card(c) for c in cards])
         mode = "url"
     else:
-        # ASINモード: 各ASINのAmazon情報を取得（DBキャッシュ優先）
-        asins = _parse_asins(query)[:MAX_ITEMS]
+        # ASINモード: テキストのASIN列 / 任意URL内のAmazonリンクから収集
+        if re.match(r"^https?://", query):
+            # ブログ記事等の任意ページからAmazon商品リンク(ASIN)を抽出
+            asins = (await harvest_asins_from_url(query, limit=MAX_ITEMS))[:MAX_ITEMS]
+        else:
+            asins = _parse_asins(query)[:MAX_ITEMS]
         amzn_sem = asyncio.Semaphore(AMAZON_CONCURRENCY)
 
         async def fetch_and_build(asin: str) -> PriceDiffRow:

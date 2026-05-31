@@ -68,16 +68,27 @@ async function isBackendAvailable(): Promise<boolean> {
     return available;
 }
 
-// 家電カテゴリ語（長い順にマッチ）。誤マッチ防止のゲートにも使う
-const CATEGORY_WORDS = [
-    "オーブンレンジ", "電子レンジ", "ロボット掃除機", "空気清浄機", "食器洗い乾燥機",
-    "液晶テレビ", "有機ELテレビ", "コーヒーメーカー", "電気ケトル", "炊飯器",
-    "洗濯機", "乾燥機", "冷蔵庫", "冷凍庫", "製氷機", "テレビ", "モニター", "ディスプレイ",
-    "掃除機", "エアコン", "扇風機", "サーキュレーター", "ドライヤー", "加湿器", "除湿機",
-    "食洗機", "トースター", "ケトル", "ヒーター", "ストーブ", "こたつ", "アイロン",
-    "ミシン", "カメラ", "スピーカー", "イヤホン", "ヘッドホン", "プリンター",
-    "ホットプレート", "コンロ", "グリル", "レンジ", "時計", "腕時計",
-].sort((a, b) => b.length - a.length);
+// ===== カテゴリ（同義語は同一クラス） =====
+const CATEGORY_CLASSES: string[][] = [
+    ["電子レンジ", "オーブンレンジ", "スチームオーブンレンジ", "単機能レンジ", "レンジ"],
+    ["冷蔵庫", "冷凍冷蔵庫", "冷蔵冷凍庫", "冷凍庫", "ワインセラー"],
+    ["洗濯機", "全自動洗濯機", "ドラム式洗濯機", "二槽式洗濯機", "洗濯乾燥機"],
+    ["衣類乾燥機", "乾燥機"],
+    ["テレビ", "液晶テレビ", "有機ELテレビ"],
+    ["扇風機", "サーキュレーター"],
+    ["掃除機", "ロボット掃除機", "スティック掃除機", "コードレス掃除機"],
+    ["モニター", "ディスプレイ"],
+    ["電気ケトル", "ケトル"],
+    ["食洗機", "食器洗い乾燥機", "食器洗い機"],
+    ["時計", "腕時計"],
+    ["炊飯器"], ["エアコン"], ["ドライヤー"], ["加湿器"], ["除湿機"],
+    ["空気清浄機"], ["トースター"], ["コーヒーメーカー"], ["ヒーター"],
+    ["ストーブ"], ["こたつ"], ["アイロン"], ["ミシン"], ["カメラ"],
+    ["スピーカー"], ["イヤホン"], ["ヘッドホン"], ["プリンター"],
+    ["ホットプレート"], ["コンロ"], ["グリル"],
+];
+const CATEGORY_WORDS = [...new Set(CATEGORY_CLASSES.flat())].sort((a, b) => b.length - a.length);
+const PERIPHERAL_SUFFIXES = ["台", "ボード", "スタンド", "ラック", "カバー", "マット", "フード", "用", "シート", "ケース", "収納", "掛け", "置き", "パッド"];
 
 function extractCategory(title: string): string | null {
     for (const w of CATEGORY_WORDS) {
@@ -86,63 +97,148 @@ function extractCategory(title: string): string | null {
     return null;
 }
 
-// 既知の家電ブランド
+function categoryClass(word: string | null): string[] {
+    if (!word) return [];
+    for (const c of CATEGORY_CLASSES) if (c.includes(word)) return c;
+    return [word];
+}
+
+function stripPeripherals(text: string): string {
+    let t = text;
+    for (const c of CATEGORY_WORDS) for (const s of PERIPHERAL_SUFFIXES) t = t.split(c + s).join("");
+    return t;
+}
+
+function categoryIn(amazonCat: string | null, yahoo: string): boolean {
+    if (!amazonCat) return true;
+    const cleaned = stripPeripherals(yahoo);
+    return categoryClass(amazonCat).some((w) => cleaned.includes(w));
+}
+
+// ===== ブランド =====
 const KNOWN_BRANDS = [
     "パナソニック", "Panasonic", "日立", "HITACHI", "東芝", "TOSHIBA",
     "シャープ", "SHARP", "三菱", "MITSUBISHI", "ハイセンス", "Hisense",
-    "ハイアール", "Haier", "アイリスオーヤマ", "IRIS", "山善", "YAMAZEN",
+    "ハイアール", "Haier", "アイリスオーヤマ", "アイリス", "IRIS", "山善", "YAMAZEN",
     "アクア", "AQUA", "COMFEE", "コンフィー", "ニトリ", "無印良品",
     "ツインバード", "TWINBIRD", "コイズミ", "KOIZUMI", "ソニー", "SONY",
     "シャオミ", "Xiaomi", "バルミューダ", "BALMUDA", "デロンギ", "DeLonghi",
     "ダイソン", "Dyson", "象印", "ZOJIRUSHI", "タイガー", "TIGER",
     "ニコン", "Nikon", "キヤノン", "Canon", "フィリップス", "PHILIPS",
+    "ダイキン", "DAIKIN", "コロナ", "CORONA", "富士通", "FUJITSU",
+    "リンナイ", "RINNAI", "マクスゼン", "MAXZEN", "船井", "FUNAI",
+    "オリオン", "ORION", "エプソン", "EPSON", "ブラザー", "BROTHER",
+    "アンカー", "Anker", "サムスン", "Samsung", "Apple", "LG",
+    "アイロボット", "iRobot", "ルンバ", "Roomba", "シャーク", "Shark",
+    "ロボロック", "Roborock", "マクセル", "MAXELL", "ティファール", "T-fal",
 ];
 const BRAND_BLOCKLIST = new Set([
     "FULL", "HD", "HDMI", "LED", "LCD", "USB", "PSE", "PSU", "DC", "AC",
     "PRO", "MAX", "MINI", "NEW", "SET", "KG", "CM", "LL", "XL", "WIFI",
+    "WHITE", "BLACK", "SILVER", "GRAY", "GREY", "BEIGE", "BROWN", "NAVY",
+    "STAINLESS", "STEEL", "GLASS", "PLASTIC", "WOOD", "ALUMI",
+    "INVERTER", "AUTO", "ECO", "TURBO", "SMART", "TIMER", "SLIM", "DUAL",
+    "POWER", "SILENT", "QUIET", "COMPACT", "PORTABLE", "WIRELESS", "DIGITAL",
+    "TYPE", "FHD", "UHD", "BLUETOOTH", "MODEL", "JAPAN", "MADE", "SERIES",
+    "STYLE", "DESIGN", "PREMIUM", "STANDARD", "VERSION", "SIZE", "COLOR",
 ]);
 
+function asciiWordPresent(needle: string, hayLower: string): boolean {
+    const re = new RegExp("(?<![a-z0-9])" + needle.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![a-z0-9])");
+    return re.test(hayLower);
+}
+
 function extractBrand(title: string): string | null {
-    const lower = title.toLowerCase();
+    const low = title.toLowerCase();
     for (const b of KNOWN_BRANDS) {
-        if (lower.includes(b.toLowerCase())) return b;
+        if (/[a-z]/.test(b.toLowerCase())) {
+            if (asciiWordPresent(b, low)) return b;
+        } else if (title.includes(b)) return b;
     }
-    // 既知に無ければ4文字以上の英大文字トークンを候補に（例: SAMKYO）
-    const m = title.match(/[A-Z][A-Z0-9]{3,}/g) || [];
+    const m = title.match(/(?<![A-Za-z])[A-Z][A-Z]{3,}(?![a-z])/g) || [];
     for (const tok of m) {
-        if (!BRAND_BLOCKLIST.has(tok) && !/^\d+[A-Z]+$/.test(tok)) return tok;
+        if (BRAND_BLOCKLIST.has(tok)) continue;
+        if (/^\d+[A-Z]+$/.test(tok)) continue;
+        return tok;
     }
     return null;
 }
 
+function brandIn(brand: string | null, yahoo: string): boolean {
+    if (!brand) return false;
+    if (/[a-z]/.test(brand.toLowerCase())) return asciiWordPresent(brand, yahoo.toLowerCase());
+    return yahoo.includes(brand);
+}
+
+// ===== 型番 =====
+const MODEL_SPEC_BLOCKLIST = new Set(["TYPE-C", "TYPE-A", "USB-C", "USB-A", "USB3", "USB2"]);
+const MODEL_PATTERNS = [
+    /[A-Za-z]{2,5}-[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]+)*/g,
+    /[A-Za-z]{1,5}\d{2,}[A-Za-z0-9]*/g,
+    /\d{2,}[A-Za-z]{1,4}\d*[A-Za-z]*/g,
+];
+function normModel(s: string): string {
+    return (s || "").replace(/[\s　-]/g, "").toUpperCase();
+}
 function extractModelTokens(title: string): string[] {
-    const toks: string[] = [];
-    const m = title.match(/[A-Za-z]{1,5}-?\d{2,}[A-Za-z0-9-]*/g) || [];
-    for (const t of m) {
-        const up = t.toUpperCase();
-        if (/^\d+(?:KG|L|CM|W)$/.test(up)) continue; // 容量除外
-        if (up.length >= 3) toks.push(up);
+    const cands = new Set<string>();
+    for (const pat of MODEL_PATTERNS) for (const m of title.match(pat) || []) cands.add(m.toUpperCase());
+    const out: string[] = [];
+    for (const c of cands) {
+        if (MODEL_SPEC_BLOCKLIST.has(c)) continue;
+        const norm = c.replace(/-/g, "");
+        if (/^\d{4}$/.test(norm)) continue;
+        if (/^\d+(?:KG|L|ML|CM|MM|W|V|型|インチ|合|人|点|台|本|畳)$/.test(norm)) continue;
+        if (norm.length < 4) continue;
+        if (!/\d/.test(c) && !c.includes("-")) continue;
+        out.push(c);
     }
-    return toks;
+    return out;
+}
+function modelMatch(amazonTitle: string, yahooTitle: string): boolean {
+    const am = extractModelTokens(amazonTitle).map(normModel);
+    const ym = extractModelTokens(yahooTitle).map(normModel);
+    const ystr = normModel(yahooTitle);
+    for (const a of am) {
+        if (a.length < 4) continue;
+        if (ystr.includes(a)) return true;
+        for (const y of ym) {
+            if (y.length < 4) continue;
+            if (a.includes(y) || y.includes(a)) return true;
+        }
+    }
+    return false;
+}
+function modelConflict(amazonTitle: string, yahooTitle: string): boolean {
+    const am = extractModelTokens(amazonTitle);
+    const ym = extractModelTokens(yahooTitle);
+    if (!am.length || !ym.length) return false;
+    return !modelMatch(amazonTitle, yahooTitle);
 }
 
-const SET_WORDS = ["点セット", "２点", "３点", "４点", "2点", "3点", "4点", "まとめ", "セット"];
-function isSetListing(title: string): boolean {
-    return SET_WORDS.some((w) => (title || "").includes(w));
-}
-
-/** 容量抽出: 洗濯機等はkg、冷蔵庫等はL。複数あれば最大値（総容量）。 */
-function extractCapacity(title: string): { value: number; unit: string } | null {
+// ===== 容量（カテゴリ別単位） =====
+const KG_CATS = new Set(["洗濯機", "全自動洗濯機", "ドラム式洗濯機", "二槽式洗濯機", "洗濯乾燥機", "衣類乾燥機", "乾燥機"]);
+const GO_CATS = new Set(["炊飯器"]);
+function extractCapacity(title: string, category: string | null = null): { value: number; unit: string } | null {
     const t = title || "";
-    const kgs = [...t.matchAll(/(\d+(?:\.\d+)?)\s*kg/gi)].map((m) => parseFloat(m[1]));
-    if (kgs.length) return { value: Math.max(...kgs), unit: "kg" };
-    const ls = [...t.matchAll(/(\d+(?:\.\d+)?)\s*[lL](?![a-zA-Z])/g)].map((m) => parseFloat(m[1]));
-    const ls2 = [...t.matchAll(/(\d+(?:\.\d+)?)\s*リットル/g)].map((m) => parseFloat(m[1]));
-    const all = [...ls, ...ls2];
-    if (all.length) return { value: Math.max(...all), unit: "L" };
+    const kg = () => [...t.matchAll(/(\d+(?:\.\d+)?)\s*kg/gi)].map((m) => parseFloat(m[1]));
+    const liter = () => {
+        const a = [...t.matchAll(/(\d+(?:\.\d+)?)\s*[lL](?![a-zA-Z])/g)].map((m) => parseFloat(m[1]));
+        const b = [...t.matchAll(/(\d+(?:\.\d+)?)\s*リットル/g)].map((m) => parseFloat(m[1]));
+        return [...a, ...b];
+    };
+    const go = () => [...t.matchAll(/(\d+(?:\.\d+)?)\s*合/g)].map((m) => parseFloat(m[1]));
+    let order: [string, () => number[]][];
+    if (category && KG_CATS.has(category)) order = [["kg", kg]];
+    else if (category && GO_CATS.has(category)) order = [["合", go]];
+    else if (category) order = [["L", liter]];
+    else order = [["kg", kg], ["L", liter]];
+    for (const [unit, fn] of order) {
+        const vals = fn();
+        if (vals.length) return { value: Math.max(...vals), unit };
+    }
     return null;
 }
-
 function capacityMatches(
     a: { value: number; unit: string } | null,
     b: { value: number; unit: string } | null,
@@ -151,17 +247,25 @@ function capacityMatches(
     if (!a || !b || a.unit !== b.unit || a.value <= 0) return false;
     return Math.abs(a.value - b.value) / a.value <= tol;
 }
-
 function capacityStr(c: { value: number; unit: string } | null): string | null {
     if (!c) return null;
-    return c.value === Math.floor(c.value) ? `${c.value}${c.unit}` : `${c.value}${c.unit}`;
+    return `${c.value}${c.unit}`;
+}
+
+// ===== セット品・ジャンク =====
+const SET_WORDS = ["点セット", "２点", "３点", "４点", "2点", "3点", "4点", "まとめ", "おまとめ", "セット販売", "2台", "3台", "２台", "３台", "2個", "まとめて"];
+const JUNK_WORDS = ["ジャンク", "部品取り", "部品鳥", "現状品", "現状渡し", "故障", "不動", "通電のみ", "通電確認のみ", "ガラス割れ", "難あり", "訳あり", "破損", "動作未確認"];
+function isSetListing(title: string): boolean {
+    return SET_WORDS.some((w) => (title || "").includes(w));
+}
+function isJunk(title: string): boolean {
+    return JUNK_WORDS.some((w) => (title || "").includes(w));
 }
 
 function extractKeyword(title: string): string {
-    // ブランド＋カテゴリ＋容量 で同一商品に絞る
     const cat = extractCategory(title);
     const brand = extractBrand(title);
-    const capstr = capacityStr(extractCapacity(title));
+    const capstr = capacityStr(extractCapacity(title, cat));
     const parts = [brand, cat, capstr].filter((p): p is string => !!p);
     if (parts.length) return parts.join(" ");
     const models = extractModelTokens(title);
@@ -170,25 +274,22 @@ function extractKeyword(title: string): string {
     return words.slice(0, 3).join(" ").slice(0, 40) || title.slice(0, 20);
 }
 
-/** 同一商品レベルの関連性判定: カテゴリ一致＋(型番一致 or ブランド＋容量一致) */
+/** 同一商品レベルの関連性判定（バックエンドmatching.pyと同一方針） */
 function isRelevant(amazonTitle: string, yahooTitle: string): boolean {
     const yahoo = yahooTitle || "";
-    const cat = extractCategory(amazonTitle);
-    if (cat && !yahoo.includes(cat)) return false; // ジャンル違い除外
-    // セット品は単品と比較しない
+    if (isJunk(yahoo)) return false;
     if (isSetListing(yahoo) && !isSetListing(amazonTitle)) return false;
-
-    const models = extractModelTokens(amazonTitle);
-    if (models.some((m) => yahoo.toUpperCase().includes(m))) return true; // 型番一致
-
+    const cat = extractCategory(amazonTitle);
+    if (cat && !categoryIn(cat, yahoo)) return false;
+    if (modelConflict(amazonTitle, yahoo)) return false;
+    if (modelMatch(amazonTitle, yahoo)) return true;
     const brand = extractBrand(amazonTitle);
-    const aCap = extractCapacity(amazonTitle);
-    const yCap = extractCapacity(yahoo);
-    const brandOk = !!(brand && yahoo.toLowerCase().includes(brand.toLowerCase()));
-    if (brandOk && capacityMatches(aCap, yCap)) return true; // ブランド＋容量一致
-
-    // 識別子が何も無い商品のみカテゴリ一致で許容
-    if (!brand && models.length === 0 && !aCap) return cat ? yahoo.includes(cat) : true;
+    const aCap = extractCapacity(amazonTitle, cat);
+    const yCap = extractCapacity(yahoo, cat);
+    if (brandIn(brand, yahoo) && capacityMatches(aCap, yCap)) return true;
+    if (!brand && extractModelTokens(amazonTitle).length === 0 && !aCap) {
+        return cat ? categoryIn(cat, yahoo) : true;
+    }
     return false;
 }
 
