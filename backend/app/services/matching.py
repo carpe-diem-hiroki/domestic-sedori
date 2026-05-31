@@ -1,20 +1,47 @@
 """商品マッチング: Amazon商品タイトルとヤフオク出品の関連性を判定する
 
-無関係な商品（例: 洗濯機↔同じ型番文字列を持つ別ジャンルのカメラ）を
-価格差候補から除外し、検索精度を上げるためのユーティリティ。
+無関係な商品（別ジャンル/別ブランド/別容量/別型番/セット品/ジャンク）を
+価格差候補から除外し、同一商品レベルの精度で照合するためのユーティリティ。
+
+デビルアドボケイト・レビューの指摘を反映:
+ - 型番正規表現を日本の主要型番（ES-GE7H-T, 32A4N, IC-SLDC 等）に対応
+ - ブランド誤爆対策（材質/色/機能語をブロック、既知ブランド拡充）
+ - カテゴリを同義クラス化＋周辺商品（テレビ台等）を除外
+ - 容量はカテゴリ別の単位で抽出（洗濯機=kg / 冷蔵庫等=L / 炊飯器=合）
+ - ジャンク品は相場を汚すため除外
 """
 import re
 import statistics
 
-# 家電の代表的なカテゴリ語（長い語を優先してマッチ）
-CATEGORY_WORDS = [
-    "オーブンレンジ", "電子レンジ", "ロボット掃除機", "空気清浄機", "食器洗い乾燥機",
-    "液晶テレビ", "有機ELテレビ", "コーヒーメーカー", "電気ケトル", "炊飯器",
-    "洗濯機", "乾燥機", "冷蔵庫", "冷凍庫", "製氷機", "テレビ", "モニター", "ディスプレイ",
-    "掃除機", "エアコン", "扇風機", "サーキュレーター", "ドライヤー", "加湿器", "除湿機",
-    "食洗機", "トースター", "ケトル", "ヒーター", "ストーブ", "こたつ", "アイロン",
-    "ミシン", "カメラ", "スピーカー", "イヤホン", "ヘッドホン", "プリンター",
-    "ホットプレート", "コンロ", "グリル", "レンジ", "時計", "腕時計",
+# ===== カテゴリ（同義語は同一クラスにまとめる） =====
+CATEGORY_CLASSES: list[set[str]] = [
+    {"電子レンジ", "オーブンレンジ", "スチームオーブンレンジ", "単機能レンジ", "レンジ"},
+    {"冷蔵庫", "冷凍冷蔵庫", "冷蔵冷凍庫", "冷凍庫", "ワインセラー"},
+    {"洗濯機", "全自動洗濯機", "ドラム式洗濯機", "二槽式洗濯機", "洗濯乾燥機"},
+    {"衣類乾燥機", "乾燥機"},
+    {"テレビ", "液晶テレビ", "有機ELテレビ"},
+    {"扇風機", "サーキュレーター"},
+    {"掃除機", "ロボット掃除機", "スティック掃除機", "コードレス掃除機"},
+    {"モニター", "ディスプレイ"},
+    {"電気ケトル", "ケトル"},
+    {"食洗機", "食器洗い乾燥機", "食器洗い機"},
+    {"時計", "腕時計"},
+    # 単独カテゴリ
+    {"炊飯器"}, {"エアコン"}, {"ドライヤー"}, {"加湿器"}, {"除湿機"},
+    {"空気清浄機"}, {"トースター"}, {"コーヒーメーカー"}, {"ヒーター"},
+    {"ストーブ"}, {"こたつ"}, {"アイロン"}, {"ミシン"}, {"カメラ"},
+    {"スピーカー"}, {"イヤホン"}, {"ヘッドホン"}, {"プリンター"},
+    {"ホットプレート"}, {"コンロ"}, {"グリル"},
+]
+# 全カテゴリ語（最長一致用）
+CATEGORY_WORDS = sorted(
+    {w for c in CATEGORY_CLASSES for w in c}, key=len, reverse=True
+)
+
+# カテゴリ語に付くと「周辺商品（本体ではない）」になる接尾辞
+_PERIPHERAL_SUFFIXES = [
+    "台", "ボード", "スタンド", "ラック", "カバー", "マット", "フード",
+    "用", "シート", "ケース", "収納", "掛け", "置き", "パッド",
 ]
 
 
@@ -22,82 +49,213 @@ def extract_category(title: str) -> str | None:
     """タイトルから商品カテゴリ語を抽出（最長一致）"""
     if not title:
         return None
-    for w in sorted(CATEGORY_WORDS, key=len, reverse=True):
+    for w in CATEGORY_WORDS:
         if w in title:
             return w
     return None
 
 
-# 既知の家電ブランド（日本語/英語表記の両方）
+def _category_class(word: str | None) -> set[str]:
+    if not word:
+        return set()
+    for c in CATEGORY_CLASSES:
+        if word in c:
+            return c
+    return {word}
+
+
+def _strip_peripherals(text: str) -> str:
+    """周辺商品の複合語（テレビ台/レンジ台/冷蔵庫マット等）を除去"""
+    for c in CATEGORY_WORDS:
+        for suf in _PERIPHERAL_SUFFIXES:
+            text = text.replace(c + suf, "")
+    return text
+
+
+def category_in(amazon_category: str | None, yahoo_title: str) -> bool:
+    """同義クラスのいずれかが（周辺商品を除いた）ヤフオク側に含まれるか"""
+    if not amazon_category:
+        return True
+    cleaned = _strip_peripherals(yahoo_title or "")
+    return any(w in cleaned for w in _category_class(amazon_category))
+
+
+# ===== ブランド =====
 KNOWN_BRANDS = [
     "パナソニック", "Panasonic", "日立", "HITACHI", "東芝", "TOSHIBA",
     "シャープ", "SHARP", "三菱", "MITSUBISHI", "ハイセンス", "Hisense",
-    "ハイアール", "Haier", "アイリスオーヤマ", "IRIS", "山善", "YAMAZEN",
+    "ハイアール", "Haier", "アイリスオーヤマ", "アイリス", "IRIS", "山善", "YAMAZEN",
     "アクア", "AQUA", "COMFEE", "コンフィー", "ニトリ", "無印良品",
     "ツインバード", "TWINBIRD", "コイズミ", "KOIZUMI", "ソニー", "SONY",
     "シャオミ", "Xiaomi", "バルミューダ", "BALMUDA", "デロンギ", "DeLonghi",
     "ダイソン", "Dyson", "象印", "ZOJIRUSHI", "タイガー", "TIGER",
     "ニコン", "Nikon", "キヤノン", "Canon", "フィリップス", "PHILIPS",
+    # 追加（家電せどり頻出ブランド）
+    "ダイキン", "DAIKIN", "コロナ", "CORONA", "富士通", "FUJITSU",
+    "リンナイ", "RINNAI", "ノーリツ", "NORITZ", "マクスゼン", "MAXZEN",
+    "船井", "FUNAI", "オリオン", "ORION", "エプソン", "EPSON",
+    "ブラザー", "BROTHER", "ジャノメ", "JANOME", "リコー", "RICOH",
+    "アンカー", "Anker", "サムスン", "Samsung", "Apple", "LG",
+    "アイロボット", "iRobot", "ルンバ", "Roomba", "シャーク", "Shark",
+    "ロボロック", "Roborock", "JVC", "ビクター", "Victor", "マクセル", "MAXELL",
+    "エレクトロラックス", "Electrolux", "moosoo", "Levoit", "アラジン", "Aladdin",
+    "ヤマダ", "MOOSOO", "ティファール", "T-fal",
 ]
 
-# ブランド候補から除外する一般的な英大文字語
+# ブランド候補から除外する一般英大文字語（材質/色/機能/規格/汎用）
 _BRAND_BLOCKLIST = {
+    # 既存
     "FULL", "HD", "HDMI", "LED", "LCD", "USB", "PSE", "PSU", "DC", "AC",
     "PRO", "MAX", "MINI", "NEW", "SET", "KG", "CM", "LL", "XL", "WIFI",
+    # 色・材質
+    "WHITE", "BLACK", "SILVER", "GRAY", "GREY", "BEIGE", "BROWN", "NAVY",
+    "STAINLESS", "STEEL", "GLASS", "PLASTIC", "WOOD", "ALUMI",
+    # 機能・状態
+    "INVERTER", "AUTO", "ECO", "TURBO", "SMART", "TIMER", "SLIM", "DUAL",
+    "POWER", "SILENT", "QUIET", "COMPACT", "PORTABLE", "WIRELESS", "DIGITAL",
+    # 規格・汎用
+    "TYPE", "FHD", "UHD", "BLUETOOTH", "MODEL", "JAPAN", "MADE", "SERIES",
+    "STYLE", "DESIGN", "PREMIUM", "STANDARD", "VERSION", "SIZE", "COLOR",
 }
 
 
+def _ascii_word_present(needle: str, haystack_lower: str) -> bool:
+    """ASCII語を語境界付きで含有判定（部分一致の誤爆を防ぐ）"""
+    return re.search(r"(?<![a-z0-9])" + re.escape(needle.lower()) + r"(?![a-z0-9])", haystack_lower) is not None
+
+
 def extract_brand(title: str) -> str | None:
-    """タイトルからブランドを推定（既知ブランド優先、無ければ英大文字語を候補に）"""
+    """ブランド推定（既知ブランド優先、無ければ英大文字語を候補に）"""
     if not title:
         return None
+    low = title.lower()
     for b in KNOWN_BRANDS:
-        if b.lower() in title.lower():
+        if re.search(r"[a-z]", b.lower()):
+            if _ascii_word_present(b, low):
+                return b
+        elif b in title:  # 日本語ブランドは部分一致でOK
             return b
-    # 既知に無ければ、4文字以上の英大文字トークンをブランド候補とする（例: SAMKYO, ASUMU）
-    for tok in re.findall(r"[A-Z][A-Z0-9]{3,}", title):
-        if tok not in _BRAND_BLOCKLIST and not re.fullmatch(r"\d+[A-Z]+", tok):
-            return tok
+    # 既知に無ければ、4文字以上の英大文字トークンをブランド候補に（例: SAMKYO, ASUMU）
+    for tok in re.findall(r"(?<![A-Za-z])[A-Z][A-Z]{3,}(?![a-z])", title):
+        if tok in _BRAND_BLOCKLIST:
+            continue
+        if re.fullmatch(r"\d+[A-Z]+", tok):
+            continue
+        return tok
     return None
 
 
+def brand_in(brand: str | None, yahoo_title: str) -> bool:
+    if not brand:
+        return False
+    y = yahoo_title or ""
+    if re.search(r"[a-z]", brand.lower()):
+        return _ascii_word_present(brand, y.lower())
+    return brand in y
+
+
+# ===== 型番 =====
+# TYPE-C 等のスペック語は型番扱いしない
+_MODEL_SPEC_BLOCKLIST = {"TYPE-C", "TYPE-A", "USB-C", "USB-A", "USB3", "USB2"}
+
+_MODEL_PATTERNS = [
+    r"[A-Za-z]{2,5}-[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]+)*",  # ハイフン型: ES-GE7H-T, IC-SLDC, NE-FL1A
+    r"[A-Za-z]{1,5}\d{2,}[A-Za-z0-9]*",                  # 英字+2桁数字: NP10, AQR32N
+    r"\d{2,}[A-Za-z]{1,4}\d*[A-Za-z]*",                  # 数字始まり: 32A4N, 49Z740X
+]
+
+
+def _norm_model(s: str) -> str:
+    return re.sub(r"[\s　\-]", "", s or "").upper()
+
+
 def extract_model_tokens(title: str) -> list[str]:
-    """型番らしいトークン（英字＋数字、容量を除く）を抽出"""
-    toks: list[str] = []
-    for m in re.findall(r"[A-Za-z]{1,5}-?\d{2,}[A-Za-z0-9-]*", title or ""):
-        up = m.upper()
-        # 容量・サイズ（5KG, 175L, 32型相当）は除外
-        if re.fullmatch(r"\d+(?:KG|L|CM|W)", up):
-            continue
-        if len(up) >= 3:
-            toks.append(up)
-    return toks
-
-
-# セット/まとめ売りを示す語（単品Amazonとは比較対象にしない）
-_SET_WORDS = ["点セット", "２点", "３点", "４点", "2点", "3点", "4点", "まとめ", "セット"]
-
-
-def is_set_listing(title: str) -> bool:
-    """セット・まとめ売りの出品か"""
+    """型番らしいトークンを抽出（容量/年/スペックを除外）"""
     t = title or ""
-    return any(w in t for w in _SET_WORDS)
+    cands: set[str] = set()
+    for pat in _MODEL_PATTERNS:
+        for m in re.findall(pat, t):
+            cands.add(m.upper())
+    out: list[str] = []
+    for c in cands:
+        if c in _MODEL_SPEC_BLOCKLIST:
+            continue
+        norm = c.replace("-", "")
+        if re.fullmatch(r"\d{4}", norm):  # 西暦
+            continue
+        if re.fullmatch(r"\d+(?:KG|L|ML|CM|MM|W|V|型|インチ|合|人|点|台|本|畳)", norm):
+            continue
+        if len(norm) < 4:
+            continue
+        # 数字を含むか、英字ハイフン型（IC-SLDC）のみ許可
+        if not re.search(r"\d", c) and "-" not in c:
+            continue
+        out.append(c)
+    return out
 
 
-def extract_capacity(title: str) -> tuple[float, str] | None:
-    """容量を抽出。洗濯機等は kg、冷蔵庫等は L。複数あれば最大値（総容量）を採用。
+def model_match(amazon_title: str, yahoo_title: str) -> bool:
+    """型番一致（スペース/ハイフン差・接尾辞差を吸収）"""
+    am = [_norm_model(m) for m in extract_model_tokens(amazon_title)]
+    ym = [_norm_model(m) for m in extract_model_tokens(yahoo_title)]
+    ystr = _norm_model(yahoo_title)
+    for a in am:
+        if len(a) < 4:
+            continue
+        if a in ystr:  # ヤフオクのスペース挿入(ES GE7H)を吸収
+            return True
+        for y in ym:
+            if len(y) < 4:
+                continue
+            if a in y or y in a:  # 接尾辞差(ES-GE7H-T ↔ ES-GE7H)を吸収
+                return True
+    return False
 
-    例: "幅49cm 175L 大容量冷蔵室122L" -> (175.0, 'L')
-        "洗濯機 5.5kg" -> (5.5, 'kg')
+
+def model_conflict(amazon_title: str, yahoo_title: str) -> bool:
+    """両者に型番があり、かつ一致しないなら別商品（容量一致でも除外する）"""
+    am = extract_model_tokens(amazon_title)
+    ym = extract_model_tokens(yahoo_title)
+    if not am or not ym:
+        return False
+    return not model_match(amazon_title, yahoo_title)
+
+
+# ===== 容量（カテゴリ別の単位） =====
+_KG_CATS = {"洗濯機", "全自動洗濯機", "ドラム式洗濯機", "二槽式洗濯機", "洗濯乾燥機", "衣類乾燥機", "乾燥機"}
+_GO_CATS = {"炊飯器"}
+
+
+def extract_capacity(title: str, category: str | None = None) -> tuple[float, str] | None:
+    """容量を抽出。カテゴリで単位を決める（洗濯機=kg / 冷蔵庫等=L / 炊飯器=合）。
+    複数あれば最大値（総容量）を採用。カテゴリ不明時は kg→L の順。
     """
     t = title or ""
-    kgs = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*kg", t, re.I)]
-    if kgs:
-        return (max(kgs), "kg")
-    ls = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*[lL](?![a-zA-Z])", t)]
-    ls += [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*リットル", t)]
-    if ls:
-        return (max(ls), "L")
+
+    def kg():
+        return [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*kg", t, re.I)]
+
+    def liter():
+        v = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*[lL](?![a-zA-Z])", t)]
+        v += [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*リットル", t)]
+        return v
+
+    def go():
+        return [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*合", t)]
+
+    if category in _KG_CATS:
+        order = [("kg", kg)]
+    elif category in _GO_CATS:
+        order = [("合", go)]
+    elif category:
+        order = [("L", liter)]
+    else:
+        order = [("kg", kg), ("L", liter)]
+
+    for unit, fn in order:
+        vals = fn()
+        if vals:
+            return (max(vals), unit)
     return None
 
 
@@ -114,31 +272,6 @@ def capacity_matches(
     return abs(a_cap[0] - y_cap[0]) / a_cap[0] <= tol
 
 
-def _significant_tokens(text: str) -> set[str]:
-    """関連性判定に使う有意トークンを抽出"""
-    text = text or ""
-    toks: set[str] = set()
-    # カタカナ語（2文字以上）
-    toks.update(re.findall(r"[ァ-ヴー]{2,}", text))
-    # 漢字語（2文字以上）
-    toks.update(re.findall(r"[一-龥]{2,}", text))
-    # 英数（ブランド/型番、2文字以上、大文字化）
-    toks.update(t.upper() for t in re.findall(r"[A-Za-z0-9]{2,}", text))
-    # 容量・サイズ（5kg / 175L / 45cm / 32型 / 23インチ）
-    toks.update(
-        m.upper() for m in re.findall(r"\d+\.?\d*(?:kg|l|cm|インチ|型|合|w)", text, re.I)
-    )
-    return toks
-
-
-# 関連性に寄与しない汎用語（家電全般に頻出するため除外）
-_STOPWORDS = {
-    "一人暮らし", "二人暮らし", "ふたり暮らし", "全自動", "静音", "節電", "省エネ",
-    "新品", "未使用", "中古", "美品", "送料無料", "保証", "ホワイト", "ブラック",
-    "コンパクト", "大容量", "小型", "限定", "AMAZON", "PRIME",
-}
-
-
 def _capacity_str(cap: tuple[float, str] | None) -> str | None:
     if not cap:
         return None
@@ -146,16 +279,64 @@ def _capacity_str(cap: tuple[float, str] | None) -> str | None:
     return f"{int(v)}{unit}" if v == int(v) else f"{v}{unit}"
 
 
-def build_search_keyword(title: str) -> str:
-    """検索精度の高いキーワードを生成
+# ===== セット品・ジャンク =====
+_SET_WORDS = [
+    "点セット", "２点", "３点", "４点", "2点", "3点", "4点", "まとめ", "おまとめ",
+    "セット販売", "2台", "3台", "２台", "３台", "2個", "まとめて",
+]
+_JUNK_WORDS = [
+    "ジャンク", "部品取り", "部品鳥", "現状品", "現状渡し", "故障", "不動",
+    "通電のみ", "通電確認のみ", "ガラス割れ", "難あり", "訳あり", "破損", "動作未確認",
+]
 
-    方針: 「ブランド + カテゴリ + 容量」で同一商品に絞る。
-    （例: アイリスオーヤマ 冷蔵庫 320L / ハイセンス 洗濯機 5.5kg）
-    """
+
+def is_set_listing(title: str) -> bool:
+    t = title or ""
+    return any(w in t for w in _SET_WORDS)
+
+
+def is_junk(title: str) -> bool:
+    t = title or ""
+    return any(w in t for w in _JUNK_WORDS)
+
+
+# ===== トークン重複（フォールバック） =====
+def _significant_tokens(text: str) -> set[str]:
+    text = text or ""
+    toks: set[str] = set()
+    toks.update(re.findall(r"[ァ-ヴー]{2,}", text))
+    toks.update(re.findall(r"[一-龥]{2,}", text))
+    toks.update(t.upper() for t in re.findall(r"[A-Za-z0-9]{2,}", text))
+    toks.update(
+        m.upper() for m in re.findall(r"\d+\.?\d*(?:kg|l|cm|インチ|型|合|w)", text, re.I)
+    )
+    return toks
+
+
+_STOPWORDS = {
+    "一人暮らし", "二人暮らし", "ふたり暮らし", "全自動", "静音", "節電", "省エネ",
+    "新品", "未使用", "中古", "美品", "送料無料", "保証", "ホワイト", "ブラック",
+    "コンパクト", "大容量", "小型", "限定", "AMAZON", "PRIME",
+    # 機能・汎用語（暴発抑制のため追加）
+    "設計", "洗濯", "乾燥", "部屋干し", "衣類", "操作", "機能", "搭載", "対応",
+    "本体", "家電", "新生活", "応援", "便利", "人気", "おしゃれ", "シンプル",
+}
+
+
+def relevance_score(amazon_title: str, yahoo_title: str) -> float:
+    a = _significant_tokens(amazon_title) - _STOPWORDS
+    if not a:
+        return 0.0
+    y = _significant_tokens(yahoo_title)
+    return len(a & y) / len(a)
+
+
+# ===== 検索キーワード =====
+def build_search_keyword(title: str) -> str:
+    """「ブランド + カテゴリ + 容量」で同一商品に絞る検索キーワードを生成"""
     cat = extract_category(title)
     brand = extract_brand(title)
-    capstr = _capacity_str(extract_capacity(title))
-
+    capstr = _capacity_str(extract_capacity(title, cat))
     parts = [p for p in (brand, cat, capstr) if p]
     if parts:
         return " ".join(parts)
@@ -166,50 +347,41 @@ def build_search_keyword(title: str) -> str:
     return " ".join(words[:3])[:40] or (title or "")[:20]
 
 
-def relevance_score(amazon_title: str, yahoo_title: str) -> float:
-    """0〜1。Amazonタイトルの有意トークンがヤフオク側にどれだけ含まれるか"""
-    a = _significant_tokens(amazon_title) - _STOPWORDS
-    if not a:
-        return 0.0
-    y = _significant_tokens(yahoo_title)
-    common = a & y
-    return len(common) / len(a)
-
-
-def is_relevant(amazon_title: str, yahoo_title: str, threshold: float = 0.1) -> bool:
-    """関連性判定（同一商品レベルの精度）
+# ===== 関連性判定（本体） =====
+def is_relevant(amazon_title: str, yahoo_title: str, threshold: float = 0.25) -> bool:
+    """同一商品レベルの関連性判定。
 
     判定順:
-      1. カテゴリ一致（必須ゲート）。違えば除外。
-      2. セット/まとめ売りは単品Amazonと非対応として除外。
-      3. 型番一致 → 同一商品とみなす（最強の同定）。
-      4. ブランド一致 かつ 容量一致 → 同一商品とみなす（別容量・別モデルを除外）。
-      5. ブランド・型番・容量がいずれも取れない商品のみ、トークン重複でフォールバック。
+      1. ジャンク/セット品は相場に使わないため除外。
+      2. カテゴリ同義クラスのゲート（周辺商品=テレビ台等は除外）。
+      3. 両者に型番があり食い違うなら別商品として除外。
+      4. 型番一致 → 同一商品。
+      5. ブランド一致 かつ 容量一致 → 同一商品。
+      6. 識別子が何も無い商品のみ、トークン重複でフォールバック（高め閾値）。
     """
     yahoo = yahoo_title or ""
 
-    cat = extract_category(amazon_title)
-    if cat and cat not in yahoo:
-        return False  # ジャンル違いを除外
-
-    # セット品（冷蔵庫＋洗濯機 2点セット 等）は単品と比較しない
+    if is_junk(yahoo):
+        return False
     if is_set_listing(yahoo) and not is_set_listing(amazon_title):
         return False
 
-    models = extract_model_tokens(amazon_title)
-    if any(m in yahoo.upper() for m in models):
-        return True  # 型番一致＝同一商品
+    cat = extract_category(amazon_title)
+    if cat and not category_in(cat, yahoo):
+        return False
+
+    if model_conflict(amazon_title, yahoo):
+        return False
+    if model_match(amazon_title, yahoo):
+        return True
 
     brand = extract_brand(amazon_title)
-    a_cap = extract_capacity(amazon_title)
-    y_cap = extract_capacity(yahoo)
-    brand_ok = bool(brand and brand.lower() in yahoo.lower())
-    cap_ok = capacity_matches(a_cap, y_cap)
-    if brand_ok and cap_ok:
-        return True  # ブランド＋容量一致＝実質同一商品
+    a_cap = extract_capacity(amazon_title, cat)
+    y_cap = extract_capacity(yahoo, cat)
+    if brand_in(brand, yahoo) and capacity_matches(a_cap, y_cap):
+        return True
 
-    # 識別子が何も取れない商品のみ、トークン重複でフォールバック
-    if not brand and not models and not a_cap:
+    if not brand and not extract_model_tokens(amazon_title) and not a_cap:
         return relevance_score(amazon_title, yahoo_title) >= threshold
 
     return False
