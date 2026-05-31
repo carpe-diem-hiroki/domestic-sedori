@@ -126,6 +126,16 @@ CASES: list[tuple[str, str, bool, str]] = [
         "ELEGOO Neptune 4 Pro 3Dプリンター 中古 動作品",
         True, "本体↔同一本体(ELEGOO Neptune4)",
     ),
+    (
+        "Bambu Lab P2S Combo 3Dプリンター 多色造形 600mm/s",
+        "Canon PIXUS TS8030 WH インクジェットプリンター キャノン 複合機",
+        False, "3Dプリンター↔インクジェット複合機(別カテゴリ・別ブランド)",
+    ),
+    (
+        "Bambu Lab P2S 3Dプリンター 多色造形",
+        "Canon PIXUS TS8030 WH インクジェットプリンター キャノン 複合機",
+        False, "3Dプリンター↔インクジェット複合機(別物)",
+    ),
 ]
 
 
