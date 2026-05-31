@@ -4,7 +4,7 @@
  */
 import { searchYahoo, SearchResult, getDetail, AuctionDetail, checkBackendHealth, isBackendDownError } from "../utils/api-client";
 
-const CONCURRENCY = 3;
+const CONCURRENCY = 5;
 const BATCH_DELAY_MS = 400;
 const OBSERVER_DEBOUNCE_MS = 500;
 

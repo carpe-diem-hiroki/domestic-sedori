@@ -6,6 +6,11 @@ class Settings(BaseSettings):
     yahoo_scrape_interval_seconds: int = 600
     yahoo_request_delay_min: int = 3
     yahoo_request_delay_max: int = 8
+    # 対話的な検索（拡張機能/リサーチ画面）用の短い遅延
+    yahoo_search_delay_min: float = 0.3
+    yahoo_search_delay_max: float = 1.0
+    # 検索結果キャッシュのTTL（秒）
+    yahoo_search_cache_ttl: int = 600
     # Amazon
     amazon_request_delay_min: int = 3
     amazon_request_delay_max: int = 8

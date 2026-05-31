@@ -38,8 +38,10 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    from app.scrapers.base import close_shared_browser
     from app.services.scheduler import stop_scheduler
     stop_scheduler()
+    await close_shared_browser()
 
 
 app = FastAPI(
