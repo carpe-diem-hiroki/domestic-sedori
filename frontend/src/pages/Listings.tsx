@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApi } from "../hooks/useApi";
+import { KeepaGraph } from "../components/KeepaGraph";
 import type {
   CompetitorOffer,
   ListingItem,
@@ -135,16 +136,32 @@ function ListingCard({ listing, monitors, onUpdate }: ListingCardProps) {
             }}
           />
         ) : (
-          <div
+          <a
+            href={asinUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Amazonで画像を見る"
             style={{
               width: 80,
               height: 60,
-              background: "#f5f5f5",
+              background: "#fafafa",
               borderRadius: 4,
               flexShrink: 0,
-              border: "1px solid #eee",
+              border: "1px dashed #ccc",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 10,
+              color: "#999",
+              textAlign: "center",
+              lineHeight: 1.3,
+              textDecoration: "none",
             }}
-          />
+          >
+            画像なし
+            <br />
+            Amazon↗
+          </a>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <a
@@ -213,6 +230,14 @@ function ListingCard({ listing, monitors, onUpdate }: ListingCardProps) {
         }}
       >
         {listing.description || "（説明文なし）"}
+      </div>
+
+      {/* Amazon価格推移（Keepa・無料） */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: "#666", fontWeight: 600, marginBottom: 6 }}>
+          Amazon価格推移（Keepa）
+        </div>
+        <KeepaGraph asin={listing.asin} width={520} height={160} />
       </div>
 
       {/* 監視中のオークション */}
