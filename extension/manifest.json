@@ -43,7 +43,8 @@
         },
         {
             "matches": [
-                "https://page.auctions.yahoo.co.jp/jp/auction/*"
+                "https://page.auctions.yahoo.co.jp/jp/auction/*",
+                "https://auctions.yahoo.co.jp/jp/auction/*"
             ],
             "js": [
                 "dist/yahoo-inject.js"

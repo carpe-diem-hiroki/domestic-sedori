@@ -239,10 +239,36 @@
 .sedori-mini-item {
     padding: 5px 6px;
     border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    cursor: default;
 }
 
 .sedori-mini-item:last-child {
     border-bottom: none;
+}
+
+.sedori-mini-item:hover {
+    background: #fff8f6;
+}
+
+.sedori-mini-thumb {
+    width: 44px;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 3px;
+    flex-shrink: 0;
+    border: 1px solid #eee;
+}
+
+.sedori-mini-nothumb {
+    background: #f5f5f5;
+}
+
+.sedori-mini-item-body {
+    flex: 1;
+    min-width: 0;
 }
 
 .sedori-mini-title {
@@ -292,5 +318,133 @@
 }
 
 .sedori-mini-error {
+    color: #d32f2f;
+}
+
+/* ===== ホバー詳細ポップアップ ===== */
+
+.sedori-detail-popup {
+    position: fixed;
+    z-index: 2147483647;
+    width: 300px;
+    max-height: 420px;
+    background: #fff;
+    border: 1px solid #ff5722;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    font-family: "Segoe UI", "Hiragino Sans", sans-serif;
+    font-size: 12px;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.sedori-popup-gallery {
+    position: relative;
+    background: #f0f0f0;
+    height: 180px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sedori-popup-img {
+    max-width: 100%;
+    max-height: 180px;
+    object-fit: contain;
+}
+
+.sedori-popup-prev,
+.sedori-popup-next {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0, 0, 0, 0.45);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sedori-popup-prev { left: 4px; }
+.sedori-popup-next { right: 4px; }
+
+.sedori-popup-prev:hover,
+.sedori-popup-next:hover {
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.sedori-popup-count {
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+}
+
+.sedori-popup-info {
+    padding: 8px 10px;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.sedori-popup-item-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+
+.sedori-popup-item-title a {
+    color: #1a0dab;
+    text-decoration: none;
+}
+
+.sedori-popup-item-title a:hover {
+    text-decoration: underline;
+}
+
+.sedori-popup-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+.sedori-popup-table td {
+    padding: 3px 4px;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: top;
+}
+
+.sedori-popup-table td:first-child {
+    color: #888;
+    white-space: nowrap;
+    width: 52px;
+}
+
+.sedori-popup-loading,
+.sedori-popup-error {
+    padding: 20px;
+    text-align: center;
+    color: #888;
+    font-size: 12px;
+}
+
+.sedori-popup-error {
     color: #d32f2f;
 }

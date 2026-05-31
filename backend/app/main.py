@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine
 from app.models import Base
-from app.routers import amazon, monitor, notifications, pricing, scheduler, templates, yahoo
+from app.routers import amazon, listings, monitor, notifications, pricing, scheduler, templates, yahoo
 
 # ログ設定
 logging.basicConfig(
@@ -61,6 +61,7 @@ app.include_router(yahoo.router)
 app.include_router(monitor.router)
 app.include_router(pricing.router)
 app.include_router(amazon.router)
+app.include_router(listings.router)
 app.include_router(templates.router)
 app.include_router(notifications.router)
 app.include_router(scheduler.router)

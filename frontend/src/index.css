@@ -65,6 +65,28 @@ body {
   border-left: 3px solid #ff5722;
 }
 
+.nav-sublink {
+  display: block;
+  padding: 7px 16px 7px 42px;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+  font-size: 13px;
+  transition: all 0.15s;
+  border-left: 3px solid transparent;
+}
+
+.nav-sublink:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.nav-sublink.active {
+  color: #fff;
+  font-weight: 600;
+  border-left-color: #ff5722;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .nav-icon {
   font-size: 16px;
   width: 20px;

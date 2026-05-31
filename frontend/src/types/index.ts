@@ -109,6 +109,23 @@ export interface Template {
   created_at: string;
 }
 
+export interface ListingItem {
+  id: number;
+  product_id: number;
+  link_id: number | null;
+  asin: string;
+  product_title: string;
+  image_url: string | null;
+  sku: string;
+  price: number;
+  sub_condition: string;
+  lead_time_days: number;
+  quantity: number;
+  status: string;
+  description: string | null;
+  created_at: string;
+}
+
 export interface NotificationItem {
   id: number;
   type: string;

@@ -1,19 +1,54 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useApi } from "../hooks/useApi";
 import type { NotificationItem } from "../types";
 
-const NAV_ITEMS = [
-  { path: "/", label: "リサーチ", icon: "🔍" },
-  { path: "/monitors", label: "監視中", icon: "👁" },
-  { path: "/ended", label: "終了", icon: "✓" },
-  { path: "/templates", label: "テンプレート", icon: "📝" },
-  { path: "/settings", label: "設定", icon: "⚙" },
+interface SubItem {
+  path: string;
+  label: string;
+  filter?: string;
+}
+
+interface NavSection {
+  basePath: string;
+  label: string;
+  icon: string;
+  subItems?: SubItem[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    basePath: "/monitors",
+    label: "監視中の商品",
+    icon: "👁",
+    subItems: [
+      { path: "/monitors", label: "すべて" },
+      { path: "/monitors?filter=ending_soon", label: "終了間近" },
+      { path: "/monitors?filter=no_bids", label: "入札なし" },
+      { path: "/monitors?filter=has_bids", label: "入札あり" },
+      { path: "/monitors?filter=has_buynow", label: "即決あり" },
+    ],
+  },
+  {
+    basePath: "/ended",
+    label: "終了した商品",
+    icon: "✓",
+    subItems: [
+      { path: "/ended", label: "すべて" },
+      { path: "/ended?filter=won", label: "落札済み" },
+      { path: "/ended?filter=not_won", label: "落札なし" },
+      { path: "/ended?filter=sold", label: "売れた" },
+    ],
+  },
+  { basePath: "/listings", label: "出品", icon: "📦" },
+  { basePath: "/stats", label: "集計", icon: "📊" },
+  { basePath: "/settings", label: "設定", icon: "⚙" },
 ];
 
 export function Layout() {
   const api = useApi();
   const navigate = useNavigate();
+  const location = useLocation();
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -28,7 +63,6 @@ export function Layout() {
     return () => clearInterval(interval);
   }, [api]);
 
-  // クリック外閉じ
   useEffect(() => {
     if (!showNotifications) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -53,22 +87,35 @@ export function Layout() {
     setShowNotifications(true);
   };
 
-  const handleNotificationClick = useCallback(async (n: NotificationItem) => {
-    if (!n.is_read) {
-      await api.markNotificationRead(n.id).catch(() => {});
-      setUnreadCount((c) => Math.max(0, c - 1));
-    }
-    setShowNotifications(false);
-    if (n.link_url) {
-      navigate(n.link_url);
-    }
-  }, [api, navigate]);
+  const handleNotificationClick = useCallback(
+    async (n: NotificationItem) => {
+      if (!n.is_read) {
+        await api.markNotificationRead(n.id).catch(() => {});
+        setUnreadCount((c) => Math.max(0, c - 1));
+      }
+      setShowNotifications(false);
+      if (n.link_url) {
+        navigate(n.link_url);
+      }
+    },
+    [api, navigate]
+  );
 
   const markAllRead = async () => {
     await api.markAllNotificationsRead().catch(() => {});
     setUnreadCount(0);
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
   };
+
+  // サブアイテムのアクティブ判定: pathname + search が一致
+  const isSubItemActive = (itemPath: string) => {
+    const [p, q] = itemPath.split("?");
+    const search = q ? `?${q}` : "";
+    return location.pathname === p && location.search === search;
+  };
+
+  const isSectionActive = (basePath: string) =>
+    location.pathname.startsWith(basePath);
 
   return (
     <div className="app">
@@ -166,7 +213,9 @@ export function Layout() {
                   role="button"
                   tabIndex={0}
                   onClick={() => handleNotificationClick(n)}
-                  onKeyDown={(e) => e.key === "Enter" && handleNotificationClick(n)}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && handleNotificationClick(n)
+                  }
                   style={{
                     padding: "8px 10px",
                     borderBottom: "1px solid #f5f5f5",
@@ -189,21 +238,53 @@ export function Layout() {
           </div>
         )}
 
+        {/* ナビゲーション */}
         <ul className="sidebar-nav">
-          {NAV_ITEMS.map((item) => (
-            <li key={item.path}>
-              <NavLink
-                to={item.path}
-                className={({ isActive }) =>
-                  `nav-link ${isActive ? "active" : ""}`
-                }
-                end={item.path === "/"}
-              >
-                <span className="nav-icon">{item.icon}</span>
-                {item.label}
-              </NavLink>
-            </li>
-          ))}
+          {NAV_SECTIONS.map((section) =>
+            section.subItems ? (
+              <li key={section.basePath}>
+                {/* セクションヘッダー（クリックですべてに遷移） */}
+                <NavLink
+                  to={section.subItems[0].path}
+                  className={() =>
+                    `nav-link ${isSectionActive(section.basePath) ? "active" : ""}`
+                  }
+                >
+                  <span className="nav-icon">{section.icon}</span>
+                  {section.label}
+                </NavLink>
+                {/* サブアイテム（セクションがアクティブなら常に表示） */}
+                {isSectionActive(section.basePath) && (
+                  <ul style={{ listStyle: "none", padding: 0 }}>
+                    {section.subItems.map((sub) => (
+                      <li key={sub.path}>
+                        <NavLink
+                          to={sub.path}
+                          className={() =>
+                            `nav-sublink ${isSubItemActive(sub.path) ? "active" : ""}`
+                          }
+                        >
+                          {sub.label}
+                        </NavLink>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ) : (
+              <li key={section.basePath}>
+                <NavLink
+                  to={section.basePath}
+                  className={({ isActive }) =>
+                    `nav-link ${isActive ? "active" : ""}`
+                  }
+                >
+                  <span className="nav-icon">{section.icon}</span>
+                  {section.label}
+                </NavLink>
+              </li>
+            )
+          )}
         </ul>
       </nav>
       <main className="main-content">

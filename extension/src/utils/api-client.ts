@@ -52,3 +52,28 @@ export function searchYahoo(keyword: string): Promise<SearchResult[]> {
 export function addMonitor(data: MonitorAddRequest): Promise<unknown> {
     return fetchViaBackground<unknown>(`${API_BASE}/monitor/add`, "POST", data);
 }
+
+export interface AuctionDetail {
+    auction_id: string;
+    title: string;
+    current_price: number | null;
+    buy_now_price: number | null;
+    start_price: number | null;
+    bid_count: number | null;
+    seller_id: string | null;
+    seller_name: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    condition: string | null;
+    image_urls: string[];
+    shipping_info: string | null;
+    category: string | null;
+    brand: string | null;
+    url: string;
+}
+
+export function getDetail(auctionId: string): Promise<AuctionDetail> {
+    return fetchViaBackground<AuctionDetail>(
+        `${API_BASE}/yahoo/detail/${encodeURIComponent(auctionId)}`
+    );
+}

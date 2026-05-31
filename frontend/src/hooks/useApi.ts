@@ -4,6 +4,7 @@ import type {
   AuctionDetail,
   CompetitorsResponse,
   HistoryResponse,
+  ListingItem,
   MonitorItem,
   NotificationListResponse,
   PricingResult,
@@ -106,6 +107,47 @@ const api = {
 
   getCompetitors: (asin: string) =>
     fetchJson<CompetitorsResponse>(`${API}/amazon/competitors/${asin}`),
+
+  // Listings
+  listListings: () => fetchJson<ListingItem[]>(`${API}/listings/`),
+
+  createListing: (data: {
+    product_id: number;
+    link_id?: number | null;
+    sku: string;
+    price: number;
+    sub_condition?: string;
+    lead_time_days?: number;
+    description?: string | null;
+    template_id?: number | null;
+  }) =>
+    fetchJson<ListingItem>(`${API}/listings/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+
+  updateListing: (
+    id: number,
+    data: {
+      sku?: string;
+      price?: number;
+      sub_condition?: string;
+      lead_time_days?: number;
+      description?: string;
+      status?: string;
+    }
+  ) =>
+    fetchJson<ListingItem>(`${API}/listings/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+
+  deleteListing: (id: number) =>
+    fetchJson<{ detail: string }>(`${API}/listings/${id}`, {
+      method: "DELETE",
+    }),
 
   // Templates
   listTemplates: () => fetchJson<Template[]>(`${API}/templates/`),
