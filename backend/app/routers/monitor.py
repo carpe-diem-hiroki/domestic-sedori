@@ -7,8 +7,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.models import Auction, PriceSnapshot, Product, ProductAuctionLink
+from app.services.pricing import calculate_pricing
 
 router = APIRouter(prefix="/api/monitor", tags=["monitor"])
 
@@ -56,6 +58,27 @@ class SnapshotPoint(BaseModel):
     yahoo_price: int | None
     amazon_price: int | None
     profit_rate: float | None
+
+
+class ChanceItem(BaseModel):
+    """仕入れチャンス（価格差検出結果）"""
+    link_id: int
+    asin: str
+    product_title: str
+    yahoo_auction_id: str
+    auction_title: str
+    yahoo_price: int
+    amazon_price: int
+    profit: int
+    profit_rate: float
+    url: str | None
+
+
+class ChanceListResponse(BaseModel):
+    items: list[ChanceItem]
+    total: int
+    min_profit_rate: float
+    min_profit_amount: int
 
 
 # --- エンドポイント ---
@@ -169,6 +192,72 @@ async def list_monitors(
     ]
 
     return MonitorListResponse(items=items, total=len(items))
+
+
+@router.get("/chances", response_model=ChanceListResponse)
+async def list_chances(
+    min_profit_rate: float | None = Query(None, description="利益率の下限（%）"),
+    min_profit_amount: int | None = Query(None, description="利益額の下限（円）"),
+    db: AsyncSession = Depends(get_db),
+):
+    """現在の「仕入れチャンス」一覧
+
+    監視中(active)でAmazon価格・ヤフオク価格が揃っている商品について
+    その場で利益を計算し、閾値を満たすものを利益率の高い順に返す。
+    """
+    rate_threshold = (
+        min_profit_rate if min_profit_rate is not None
+        else settings.chance_min_profit_rate
+    )
+    amount_threshold = (
+        min_profit_amount if min_profit_amount is not None
+        else settings.chance_min_profit_amount
+    )
+
+    result = await db.execute(
+        select(ProductAuctionLink, Product, Auction)
+        .join(Product, ProductAuctionLink.product_id == Product.id)
+        .join(Auction, ProductAuctionLink.auction_id == Auction.id)
+        .where(
+            ProductAuctionLink.is_monitoring.is_(True),
+            Auction.status == "active",
+        )
+    )
+
+    items: list[ChanceItem] = []
+    for link, product, auction in result.all():
+        if not product.amazon_price or not auction.current_price:
+            continue
+
+        calc = calculate_pricing(
+            selling_price=product.amazon_price,
+            expected_winning_price=auction.current_price,
+            category=product.category,
+            shipping_cost=settings.chance_default_shipping,
+        )
+        if calc.profit_rate >= rate_threshold and calc.profit >= amount_threshold:
+            items.append(
+                ChanceItem(
+                    link_id=link.id,
+                    asin=product.asin,
+                    product_title=product.title,
+                    yahoo_auction_id=auction.auction_id,
+                    auction_title=auction.title,
+                    yahoo_price=auction.current_price,
+                    amazon_price=product.amazon_price,
+                    profit=calc.profit,
+                    profit_rate=calc.profit_rate,
+                    url=auction.url,
+                )
+            )
+
+    items.sort(key=lambda x: x.profit_rate, reverse=True)
+    return ChanceListResponse(
+        items=items,
+        total=len(items),
+        min_profit_rate=rate_threshold,
+        min_profit_amount=amount_threshold,
+    )
 
 
 @router.get("/{link_id}/snapshots", response_model=list[SnapshotPoint])

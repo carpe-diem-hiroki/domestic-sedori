@@ -8,6 +8,33 @@ const CONCURRENCY = 3;
 const BATCH_DELAY_MS = 400;
 const OBSERVER_DEBOUNCE_MS = 500;
 
+// 利益計算（価格差自動検出）のパラメータ
+const PROFIT_FEE_RATE = 0.15;     // Amazon手数料率（カテゴリ不明なので既定15%）
+const PROFIT_SHIPPING = 800;      // 送料の概算
+const CHANCE_MIN_RATE = 15;       // この利益率(%)以上を「チャンス」として強調
+
+interface ProfitCalc {
+    profit: number;
+    rate: number;
+}
+
+/** Amazon売値とヤフオク価格から想定利益・利益率を計算 */
+function computeProfit(amazonPrice: number | null, yahooPrice: number | null): ProfitCalc | null {
+    if (!amazonPrice || !yahooPrice) return null;
+    const fee = Math.round(amazonPrice * PROFIT_FEE_RATE);
+    const profit = amazonPrice - yahooPrice - fee - PROFIT_SHIPPING;
+    const rate = amazonPrice > 0 ? Math.round((profit / amazonPrice) * 100) : 0;
+    return { profit, rate };
+}
+
+/** Amazon商品カードの価格表示から数値を抽出（"￥15,800" → 15800） */
+function parseAmazonPrice(itemEl: Element): number | null {
+    const offscreen = itemEl.querySelector(".a-price .a-offscreen");
+    const text = offscreen?.textContent || itemEl.querySelector(".a-price")?.textContent || "";
+    const m = text.replace(/[￥¥,]/g, "").match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+}
+
 // バックエンド状態キャッシュ（30秒TTL）
 let backendStatus: { available: boolean; checkedAt: number } | null = null;
 
@@ -197,16 +224,44 @@ function attachHoverListeners(panel: HTMLDivElement) {
 
 // ===== ミニパネル描画 =====
 
-function renderMiniResults(panel: HTMLDivElement, results: SearchResult[]) {
+/** 利益額に応じたバッジHTMLを返す */
+function profitBadge(calc: ProfitCalc | null): string {
+    if (!calc) return "";
+    if (calc.profit < 0) {
+        return `<span class="sedori-profit sedori-profit-loss">${calc.profit.toLocaleString()}円</span>`;
+    }
+    const cls = calc.rate >= CHANCE_MIN_RATE ? "sedori-profit-good" : "sedori-profit-low";
+    return `<span class="sedori-profit ${cls}">+${calc.profit.toLocaleString()}円 (${calc.rate}%)</span>`;
+}
+
+function renderMiniResults(
+    panel: HTMLDivElement,
+    results: SearchResult[],
+    amazonPrice: number | null
+) {
     if (results.length === 0) {
         panel.innerHTML = `<div class="sedori-mini-empty">出品なし</div>`;
         return;
     }
-    const items = results
+
+    // 各結果に利益を付与し、利益の高い順に並べ替え（利益不明は末尾）
+    const enriched = results.map((r) => ({
+        r,
+        calc: computeProfit(amazonPrice, r.current_price),
+    }));
+    enriched.sort((a, b) => (b.calc?.profit ?? -Infinity) - (a.calc?.profit ?? -Infinity));
+
+    const best = enriched[0]?.calc ?? null;
+    const hasChance = enriched.some((e) => e.calc && e.calc.rate >= CHANCE_MIN_RATE && e.calc.profit > 0);
+
+    const items = enriched
         .slice(0, 5)
-        .map(
-            (r) => `
-        <div class="sedori-mini-item" data-auction-id="${r.auction_id}">
+        .map(({ r, calc }) => {
+            const chanceCls = calc && calc.rate >= CHANCE_MIN_RATE && calc.profit > 0
+                ? " sedori-mini-item-chance"
+                : "";
+            return `
+        <div class="sedori-mini-item${chanceCls}" data-auction-id="${r.auction_id}">
             ${r.image_url
                 ? `<img class="sedori-mini-thumb" src="${r.image_url}" alt="" />`
                 : `<div class="sedori-mini-thumb sedori-mini-nothumb"></div>`}
@@ -215,16 +270,27 @@ function renderMiniResults(panel: HTMLDivElement, results: SearchResult[]) {
                 <div class="sedori-mini-meta">
                     <span class="sedori-mini-price">${formatPrice(r.current_price)}</span>
                     ${r.buy_now_price ? `<span class="sedori-mini-buynow">即決:${formatPrice(r.buy_now_price)}</span>` : ""}
+                    ${profitBadge(calc)}
                     <span class="sedori-mini-time">${r.end_time_text || ""}</span>
                     <span>入札:${r.bid_count ?? 0}</span>
                 </div>
             </div>
-        </div>`
-        )
+        </div>`;
+        })
         .join("");
+
+    const headerExtra = amazonPrice
+        ? `<span class="sedori-mini-amazon">Amazon ${formatPrice(amazonPrice)}</span>`
+        : "";
+    const bestBadge = best && best.profit > 0
+        ? `<span class="sedori-mini-best ${best.rate >= CHANCE_MIN_RATE ? "sedori-profit-good" : "sedori-profit-low"}">最大 +${best.profit.toLocaleString()}円</span>`
+        : "";
+
     panel.innerHTML = `
-        <div class="sedori-mini-header">
-            <span>ヤフオク ${results.length}件</span>
+        <div class="sedori-mini-header${hasChance ? " sedori-mini-header-chance" : ""}">
+            <span>${hasChance ? "🔥 " : ""}ヤフオク ${results.length}件</span>
+            ${headerExtra}
+            ${bestBadge}
         </div>
         <div class="sedori-mini-items">${items}</div>`;
 
@@ -236,11 +302,12 @@ function renderMiniResults(panel: HTMLDivElement, results: SearchResult[]) {
 interface QueueItem {
     keyword: string;
     panel: HTMLDivElement;
+    amazonPrice: number | null;
 }
 const searchQueue: QueueItem[] = [];
 let isProcessing = false;
 
-function renderBackendError(panel: HTMLDivElement, keyword: string) {
+function renderBackendError(panel: HTMLDivElement, keyword: string, amazonPrice: number | null) {
     panel.innerHTML = `
         <div class="sedori-mini-error" style="font-size:11px;line-height:1.5">
             ⚠️ バックエンド未起動<br>
@@ -250,7 +317,7 @@ function renderBackendError(panel: HTMLDivElement, keyword: string) {
     panel.querySelector(".sedori-retry-btn")?.addEventListener("click", () => {
         // バックエンドキャッシュをリセットして再試行
         backendStatus = null;
-        searchQueue.push({ keyword, panel });
+        searchQueue.push({ keyword, panel, amazonPrice });
         processQueue();
     });
 }
@@ -263,7 +330,7 @@ async function processQueue() {
     const available = await isBackendAvailable();
     if (!available) {
         const pending = searchQueue.splice(0);
-        pending.forEach((item) => renderBackendError(item.panel, item.keyword));
+        pending.forEach((item) => renderBackendError(item.panel, item.keyword, item.amazonPrice));
         isProcessing = false;
         return;
     }
@@ -277,11 +344,11 @@ async function processQueue() {
             batch.map(async (item) => {
                 try {
                     const results = await searchYahoo(item.keyword);
-                    renderMiniResults(item.panel, results);
+                    renderMiniResults(item.panel, results, item.amazonPrice);
                 } catch (err) {
                     if (isBackendDownError(err)) {
                         backendStatus = { available: false, checkedAt: Date.now() };
-                        renderBackendError(item.panel, item.keyword);
+                        renderBackendError(item.panel, item.keyword, item.amazonPrice);
                     } else {
                         const msg = err instanceof Error ? err.message : "Unknown error";
                         item.panel.innerHTML = `<div class="sedori-mini-error" style="font-size:11px">検索エラー: ${msg.slice(0, 40)}</div>`;
@@ -315,6 +382,7 @@ function injectIntoItem(itemEl: Element) {
     if (!title) return;
 
     const keyword = extractKeyword(title);
+    const amazonPrice = parseAmazonPrice(itemEl);
 
     const wrapper = document.createElement("div");
     wrapper.className = "sedori-cat-wrapper";
@@ -339,7 +407,7 @@ function injectIntoItem(itemEl: Element) {
         itemEl.appendChild(wrapper);
     }
 
-    searchQueue.push({ keyword, panel });
+    searchQueue.push({ keyword, panel, amazonPrice });
 }
 
 function injectAll() {

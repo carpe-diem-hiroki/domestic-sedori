@@ -5,6 +5,7 @@ import { MonitorDetail } from "./pages/MonitorDetail";
 import { MonitorAdd } from "./pages/MonitorAdd";
 import { EndedList } from "./pages/EndedList";
 import { Listings } from "./pages/Listings";
+import { Chances } from "./pages/Chances";
 import { Stats } from "./pages/Stats";
 import { Settings } from "./pages/Settings";
 
@@ -30,6 +31,7 @@ export function App() {
           <Route path="/monitors/:id" element={<MonitorDetail />} />
           <Route path="/monitor/add" element={<MonitorAdd />} />
           <Route path="/ended" element={<EndedList />} />
+          <Route path="/chances" element={<Chances />} />
           <Route path="/listings" element={<Listings />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/settings" element={<Settings />} />

@@ -138,6 +138,26 @@ export interface SnapshotPoint {
   profit_rate: number | null;
 }
 
+export interface ChanceItem {
+  link_id: number;
+  asin: string;
+  product_title: string;
+  yahoo_auction_id: string;
+  auction_title: string;
+  yahoo_price: number;
+  amazon_price: number;
+  profit: number;
+  profit_rate: number;
+  url: string | null;
+}
+
+export interface ChanceListResponse {
+  items: ChanceItem[];
+  total: number;
+  min_profit_rate: number;
+  min_profit_amount: number;
+}
+
 export interface NotificationItem {
   id: number;
   type: string;

@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     # Scheduler
     scheduler_interval_minutes: int = 10
     scheduler_auto_start: bool = False
+    # Amazon価格リフレッシュ（スケジューラー）
+    amazon_refresh_enabled: bool = True
+    amazon_refresh_interval_hours: int = 12  # この時間より古い価格だけ再取得
+    # 価格差「仕入れチャンス」検出の閾値
+    chance_min_profit_rate: float = 15.0   # 利益率（%）以上で通知
+    chance_min_profit_amount: int = 1000   # かつ利益額（円）以上で通知
+    chance_default_shipping: int = 800     # 利益計算に使う送料
     # Notification
     max_notifications: int = 100
     # General

@@ -1,9 +1,9 @@
 """監視ジョブスケジューラー - ヤフオク価格の定期チェック"""
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import desc, select
 
 from app.config import settings
 from app.database import async_session
@@ -14,6 +14,7 @@ from app.models import (
     Product,
     ProductAuctionLink,
 )
+from app.scrapers.amazon_product import get_amazon_product
 from app.scrapers.yahoo_detail import get_auction_detail
 from app.services.pricing import calculate_pricing
 
@@ -108,8 +109,8 @@ async def check_monitored_auctions():
 
                 auction.last_checked = now
 
-                # 価格推移グラフ用スナップショットを記録
-                _record_snapshot(db, link, auction, product)
+                # Amazon価格リフレッシュ → スナップショット記録 → 価格差チャンス検出
+                await _process_price_intelligence(db, link, auction, product, now)
 
                 updated += 1
 
@@ -122,24 +123,70 @@ async def check_monitored_auctions():
         )
 
 
-def _record_snapshot(db, link, auction, product) -> None:
-    """価格推移スナップショットを1件追加する
+async def _maybe_refresh_amazon_price(product: Product, now: datetime) -> None:
+    """Amazon価格が古い/未取得なら再スクレイピングして更新する"""
+    if not settings.amazon_refresh_enabled:
+        return
 
-    yahoo_price: ヤフオク現在価格
-    amazon_price: Amazon販売価格（Product.amazon_price）
-    profit_rate: 両者から算出した想定利益率（両方あるときのみ）
+    fresh_enough = (
+        product.amazon_price is not None
+        and product.price_updated_at is not None
+        and product.price_updated_at
+        > now - timedelta(hours=settings.amazon_refresh_interval_hours)
+    )
+    if fresh_enough:
+        return
+
+    try:
+        amzn = await get_amazon_product(product.asin)
+        if amzn and amzn.price is not None:
+            product.amazon_price = amzn.price
+            product.price_updated_at = now
+            if amzn.category and not product.category:
+                product.category = amzn.category
+            logger.info(f"Amazon price refreshed: {product.asin} = {amzn.price}")
+    except Exception as e:
+        logger.warning(f"Amazon refresh failed for {product.asin}: {e}")
+
+
+async def _get_previous_profit_rate(db, link_id: int) -> float | None:
+    """直近のスナップショットの利益率を取得（チャンスのエッジ検出用）"""
+    result = await db.execute(
+        select(PriceSnapshot.profit_rate)
+        .where(PriceSnapshot.link_id == link_id)
+        .order_by(desc(PriceSnapshot.captured_at))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _process_price_intelligence(db, link, auction, product, now) -> None:
+    """価格差インテリジェンス処理
+
+    1. Amazon価格をリフレッシュ
+    2. 想定利益・利益率を計算
+    3. スナップショットを記録（グラフ用）
+    4. 利益率が閾値を新たに超えたら「仕入れチャンス」通知を発火（エッジ検出）
     """
+    await _maybe_refresh_amazon_price(product, now)
+
     yahoo_price = auction.current_price
     amazon_price = product.amazon_price
 
+    profit = None
     profit_rate = None
     if amazon_price and yahoo_price:
         calc = calculate_pricing(
             selling_price=amazon_price,
             expected_winning_price=yahoo_price,
             category=product.category,
+            shipping_cost=settings.chance_default_shipping,
         )
+        profit = calc.profit
         profit_rate = calc.profit_rate
+
+    # エッジ検出のため「直近の利益率」を先に取得（新スナップショット追加前）
+    prev_rate = await _get_previous_profit_rate(db, link.id)
 
     db.add(
         PriceSnapshot(
@@ -149,6 +196,33 @@ def _record_snapshot(db, link, auction, product) -> None:
             profit_rate=profit_rate,
         )
     )
+
+    # 仕入れチャンス判定: 今回は閾値超え かつ 前回は閾値未満（新規発生時のみ通知）
+    if profit_rate is None or profit is None:
+        return
+
+    meets_now = (
+        profit_rate >= settings.chance_min_profit_rate
+        and profit >= settings.chance_min_profit_amount
+    )
+    met_before = prev_rate is not None and prev_rate >= settings.chance_min_profit_rate
+
+    if meets_now and not met_before:
+        db.add(
+            Notification(
+                type="price_gap",
+                title=f"仕入れチャンス: {product.title[:30]}",
+                message=(
+                    f"{product.title}\n"
+                    f"ヤフオク {yahoo_price:,}円 → Amazon {amazon_price:,}円\n"
+                    f"想定利益 {profit:,}円（利益率 {profit_rate}%）"
+                ),
+                link_url=f"/monitors/{link.id}",
+            )
+        )
+        logger.info(
+            f"Chance detected: link={link.id} profit={profit} rate={profit_rate}%"
+        )
 
 
 def start_scheduler():

@@ -40,6 +40,7 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/ended?filter=sold", label: "売れた" },
     ],
   },
+  { basePath: "/chances", label: "仕入れチャンス", icon: "🔥" },
   { basePath: "/listings", label: "出品", icon: "📦" },
   { basePath: "/stats", label: "集計", icon: "📊" },
   { basePath: "/settings", label: "設定", icon: "⚙" },

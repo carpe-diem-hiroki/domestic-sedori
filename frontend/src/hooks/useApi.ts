@@ -2,6 +2,7 @@ import type {
   AmazonProduct,
   AmazonProductDB,
   AuctionDetail,
+  ChanceListResponse,
   CompetitorsResponse,
   HistoryResponse,
   ListingItem,
@@ -66,6 +67,16 @@ const api = {
 
   getSnapshots: (id: number, days = 30) =>
     fetchJson<SnapshotPoint[]>(`${API}/monitor/${id}/snapshots?days=${days}`),
+
+  listChances: (minProfitRate?: number, minProfitAmount?: number) => {
+    const params = new URLSearchParams();
+    if (minProfitRate != null) params.set("min_profit_rate", String(minProfitRate));
+    if (minProfitAmount != null) params.set("min_profit_amount", String(minProfitAmount));
+    const qs = params.toString();
+    return fetchJson<ChanceListResponse>(
+      `${API}/monitor/chances${qs ? `?${qs}` : ""}`
+    );
+  },
 
   removeMonitor: (id: number) =>
     fetchJson<{ message: string }>(`${API}/monitor/${id}`, {

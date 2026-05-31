@@ -213,9 +213,62 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 6px;
     border-radius: 5px 5px 0 0;
     font-weight: 600;
     font-size: 12px;
+}
+
+/* チャンスがあるパネルのヘッダーは緑に */
+.sedori-mini-header-chance {
+    background: #2e7d32;
+}
+
+.sedori-mini-amazon {
+    font-weight: 400;
+    font-size: 11px;
+    opacity: 0.95;
+}
+
+.sedori-mini-best {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.9);
+}
+
+/* 利益バッジ */
+.sedori-profit {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 0 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+.sedori-profit-good {
+    background: #2e7d32;
+    color: #fff;
+}
+
+.sedori-profit-low {
+    background: #eeeeee;
+    color: #757575;
+}
+
+.sedori-profit-loss {
+    background: #ffebee;
+    color: #c62828;
+}
+
+/* チャンス行を強調 */
+.sedori-mini-item-chance {
+    background: #f1f8e9;
+    border-left: 3px solid #2e7d32;
+}
+
+.sedori-mini-item-chance:hover {
+    background: #e8f5e9;
 }
 
 .sedori-mini-close {
