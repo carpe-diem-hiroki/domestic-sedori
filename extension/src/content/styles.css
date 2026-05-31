@@ -517,3 +517,116 @@
 .sedori-popup-error {
     color: #d32f2f;
 }
+
+/* ===== 価格差サマリー（浮動ランキングパネル） ===== */
+
+.sedori-summary {
+    position: fixed;
+    top: 80px;
+    right: 12px;
+    width: 300px;
+    max-height: 70vh;
+    z-index: 2147483646;
+    background: #fff;
+    border: 2px solid #2e7d32;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    font-family: "Segoe UI", "Hiragino Sans", sans-serif;
+    display: none;
+    overflow: hidden;
+}
+
+.sedori-summary-header {
+    background: #2e7d32;
+    color: #fff;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sedori-summary-toggle {
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 4px;
+}
+
+.sedori-summary-list {
+    max-height: calc(70vh - 32px);
+    overflow-y: auto;
+}
+
+.sedori-summary-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 12px;
+}
+
+.sedori-summary-row:hover {
+    background: #fafafa;
+}
+
+.sedori-summary-chance {
+    background: #f1f8e9;
+}
+
+.sedori-summary-rank {
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+    color: #999;
+    font-weight: 700;
+}
+
+.sedori-summary-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.sedori-summary-title {
+    display: block;
+    color: #1a0dab;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sedori-summary-title:hover {
+    text-decoration: underline;
+}
+
+.sedori-summary-meta {
+    display: flex;
+    gap: 6px;
+    color: #888;
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+.sedori-summary-ylink {
+    color: #1976d2;
+    text-decoration: none;
+}
+
+.sedori-summary-profit {
+    flex-shrink: 0;
+    text-align: right;
+    font-weight: 700;
+    border-radius: 4px;
+    padding: 2px 6px;
+    line-height: 1.2;
+}
+
+.sedori-summary-profit small {
+    font-weight: 400;
+    font-size: 10px;
+}

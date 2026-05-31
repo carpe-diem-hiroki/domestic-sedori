@@ -234,10 +234,114 @@ function profitBadge(calc: ProfitCalc | null): string {
     return `<span class="sedori-profit ${cls}">+${calc.profit.toLocaleString()}円 (${calc.rate}%)</span>`;
 }
 
+// ===== 価格差サマリー（ページ全体を利益順に集約する浮動パネル） =====
+
+interface SummaryItem {
+    asin: string;
+    title: string;
+    amazonPrice: number;
+    yahooPrice: number;
+    yahooUrl: string;
+    profit: number;
+    rate: number;
+}
+
+const summaryStore = new Map<string, SummaryItem>();
+let summaryEl: HTMLDivElement | null = null;
+let summaryCollapsed = false;
+
+function recordSummary(
+    asin: string,
+    title: string,
+    amazonPrice: number | null,
+    best: { r: SearchResult; calc: ProfitCalc | null } | undefined
+) {
+    if (!asin || !amazonPrice || !best || !best.calc) return;
+    // 利益が出るものだけ集約（赤字は除外）
+    if (best.calc.profit <= 0) {
+        summaryStore.delete(asin);
+    } else {
+        summaryStore.set(asin, {
+            asin,
+            title,
+            amazonPrice,
+            yahooPrice: best.r.current_price ?? 0,
+            yahooUrl: best.r.url,
+            profit: best.calc.profit,
+            rate: best.calc.rate,
+        });
+    }
+    renderSummary();
+}
+
+function getOrCreateSummary(): HTMLDivElement {
+    if (summaryEl) return summaryEl;
+    summaryEl = document.createElement("div");
+    summaryEl.className = "sedori-summary";
+    document.body.appendChild(summaryEl);
+    return summaryEl;
+}
+
+function renderSummary() {
+    const el = getOrCreateSummary();
+    const items = [...summaryStore.values()].sort((a, b) => b.profit - a.profit);
+
+    if (items.length === 0) {
+        el.style.display = "none";
+        return;
+    }
+    el.style.display = "block";
+
+    if (summaryCollapsed) {
+        el.innerHTML = `
+            <div class="sedori-summary-header">
+                <span>💹 価格差 ${items.length}件</span>
+                <button class="sedori-summary-toggle">▲</button>
+            </div>`;
+        el.querySelector(".sedori-summary-toggle")?.addEventListener("click", () => {
+            summaryCollapsed = false;
+            renderSummary();
+        });
+        return;
+    }
+
+    const rows = items
+        .slice(0, 20)
+        .map(
+            (it, i) => `
+        <div class="sedori-summary-row${it.rate >= CHANCE_MIN_RATE ? " sedori-summary-chance" : ""}">
+            <span class="sedori-summary-rank">${i + 1}</span>
+            <div class="sedori-summary-body">
+                <a href="https://www.amazon.co.jp/dp/${it.asin}" target="_blank" class="sedori-summary-title">${it.title.slice(0, 36)}</a>
+                <div class="sedori-summary-meta">
+                    <span>Y!${formatPrice(it.yahooPrice)}</span>
+                    <span>→A${formatPrice(it.amazonPrice)}</span>
+                    <a href="${it.yahooUrl}" target="_blank" class="sedori-summary-ylink">Y!</a>
+                </div>
+            </div>
+            <span class="sedori-summary-profit ${it.rate >= CHANCE_MIN_RATE ? "sedori-profit-good" : "sedori-profit-low"}">+${it.profit.toLocaleString()}<br><small>${it.rate}%</small></span>
+        </div>`
+        )
+        .join("");
+
+    el.innerHTML = `
+        <div class="sedori-summary-header">
+            <span>💹 価格差ランキング ${items.length}件</span>
+            <button class="sedori-summary-toggle">▼</button>
+        </div>
+        <div class="sedori-summary-list">${rows}</div>`;
+    el.querySelector(".sedori-summary-toggle")?.addEventListener("click", () => {
+        summaryCollapsed = true;
+        renderSummary();
+    });
+}
+
 function renderMiniResults(
     panel: HTMLDivElement,
     results: SearchResult[],
-    amazonPrice: number | null
+    amazonPrice: number | null,
+    asin: string,
+    productTitle: string
 ) {
     if (results.length === 0) {
         panel.innerHTML = `<div class="sedori-mini-empty">出品なし</div>`;
@@ -253,6 +357,9 @@ function renderMiniResults(
 
     const best = enriched[0]?.calc ?? null;
     const hasChance = enriched.some((e) => e.calc && e.calc.rate >= CHANCE_MIN_RATE && e.calc.profit > 0);
+
+    // ページ全体サマリーへ反映
+    recordSummary(asin, productTitle, amazonPrice, enriched[0]);
 
     const items = enriched
         .slice(0, 5)
@@ -303,21 +410,23 @@ interface QueueItem {
     keyword: string;
     panel: HTMLDivElement;
     amazonPrice: number | null;
+    asin: string;
+    title: string;
 }
 const searchQueue: QueueItem[] = [];
 let isProcessing = false;
 
-function renderBackendError(panel: HTMLDivElement, keyword: string, amazonPrice: number | null) {
+function renderBackendError(panel: HTMLDivElement, item: QueueItem) {
     panel.innerHTML = `
         <div class="sedori-mini-error" style="font-size:11px;line-height:1.5">
             ⚠️ バックエンド未起動<br>
             <span style="opacity:.7">localhost:8000</span><br>
-            <button class="sedori-retry-btn" data-keyword="${keyword.replace(/"/g, "&quot;")}">再試行</button>
+            <button class="sedori-retry-btn">再試行</button>
         </div>`;
     panel.querySelector(".sedori-retry-btn")?.addEventListener("click", () => {
         // バックエンドキャッシュをリセットして再試行
         backendStatus = null;
-        searchQueue.push({ keyword, panel, amazonPrice });
+        searchQueue.push(item);
         processQueue();
     });
 }
@@ -330,7 +439,7 @@ async function processQueue() {
     const available = await isBackendAvailable();
     if (!available) {
         const pending = searchQueue.splice(0);
-        pending.forEach((item) => renderBackendError(item.panel, item.keyword, item.amazonPrice));
+        pending.forEach((item) => renderBackendError(item.panel, item));
         isProcessing = false;
         return;
     }
@@ -344,11 +453,11 @@ async function processQueue() {
             batch.map(async (item) => {
                 try {
                     const results = await searchYahoo(item.keyword);
-                    renderMiniResults(item.panel, results, item.amazonPrice);
+                    renderMiniResults(item.panel, results, item.amazonPrice, item.asin, item.title);
                 } catch (err) {
                     if (isBackendDownError(err)) {
                         backendStatus = { available: false, checkedAt: Date.now() };
-                        renderBackendError(item.panel, item.keyword, item.amazonPrice);
+                        renderBackendError(item.panel, item);
                     } else {
                         const msg = err instanceof Error ? err.message : "Unknown error";
                         item.panel.innerHTML = `<div class="sedori-mini-error" style="font-size:11px">検索エラー: ${msg.slice(0, 40)}</div>`;
@@ -407,7 +516,7 @@ function injectIntoItem(itemEl: Element) {
         itemEl.appendChild(wrapper);
     }
 
-    searchQueue.push({ keyword, panel, amazonPrice });
+    searchQueue.push({ keyword, panel, amazonPrice, asin, title });
 }
 
 function injectAll() {
