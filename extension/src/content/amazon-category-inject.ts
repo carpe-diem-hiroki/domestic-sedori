@@ -131,6 +131,24 @@ const KNOWN_BRANDS = [
     "アンカー", "Anker", "サムスン", "Samsung", "Apple", "LG",
     "アイロボット", "iRobot", "ルンバ", "Roomba", "シャーク", "Shark",
     "ロボロック", "Roborock", "マクセル", "MAXELL", "ティファール", "T-fal",
+    "Creality", "クリアリティ", "Bambu Lab", "Bambu", "バンブー", "Anycubic", "エニキュービック",
+    "ELEGOO", "エレゴー", "Voxelab", "FLASHFORGE", "QIDI", "Phrozen", "Sovol",
+    "Kingroon", "Artillery", "Snapmaker", "Prusa",
+];
+// ブランドの英/日など同義表記グループ
+const BRAND_GROUPS: string[][] = [
+    ["Panasonic", "パナソニック"], ["Hisense", "ハイセンス"], ["SHARP", "シャープ"],
+    ["TOSHIBA", "東芝"], ["HITACHI", "日立"], ["MITSUBISHI", "三菱"],
+    ["SONY", "ソニー"], ["Haier", "ハイアール"], ["AQUA", "アクア"],
+    ["IRIS", "アイリスオーヤマ", "アイリス"], ["YAMAZEN", "山善"],
+    ["Nikon", "ニコン"], ["Canon", "キヤノン"], ["PHILIPS", "フィリップス"],
+    ["COMFEE", "コンフィー"], ["DAIKIN", "ダイキン"], ["CORONA", "コロナ"],
+    ["ZOJIRUSHI", "象印"], ["TIGER", "タイガー"], ["TWINBIRD", "ツインバード"],
+    ["KOIZUMI", "コイズミ"], ["BALMUDA", "バルミューダ"], ["DeLonghi", "デロンギ"],
+    ["Dyson", "ダイソン"], ["Xiaomi", "シャオミ"], ["Anker", "アンカー"],
+    ["ELEGOO", "エレゴー"], ["Creality", "クリアリティ"],
+    ["Anycubic", "エニキュービック"], ["Bambu", "Bambu Lab", "バンブー"],
+    ["iRobot", "ルンバ", "Roomba"], ["Shark", "シャーク"],
 ];
 const BRAND_BLOCKLIST = new Set([
     "FULL", "HD", "HDMI", "LED", "LCD", "USB", "PSE", "PSU", "DC", "AC",
@@ -164,18 +182,30 @@ function extractBrand(title: string): string | null {
     return null;
 }
 
+function nameIn(name: string, text: string): boolean {
+    if (/[a-z]/.test(name.toLowerCase())) return asciiWordPresent(name, text.toLowerCase());
+    return text.includes(name);
+}
+function brandEquivalents(brand: string): string[] {
+    for (const g of BRAND_GROUPS) if (g.includes(brand)) return g;
+    return [brand];
+}
 function brandIn(brand: string | null, yahoo: string): boolean {
     if (!brand) return false;
-    if (/[a-z]/.test(brand.toLowerCase())) return asciiWordPresent(brand, yahoo.toLowerCase());
-    return yahoo.includes(brand);
+    return brandEquivalents(brand).some((n) => nameIn(n, yahoo));
 }
 
 // ===== 型番 =====
-const MODEL_SPEC_BLOCKLIST = new Set(["TYPE-C", "TYPE-A", "USB-C", "USB-A", "USB3", "USB2"]);
+const MODEL_SPEC_BLOCKLIST = new Set([
+    "TYPE-C", "TYPE-A", "USB-C", "USB-A", "USB3", "USB2",
+    "4K", "8K", "2K", "FHD", "UHD", "MP4", "MP3", "PM2",
+    "3D", "2D", "1080P", "720P", "100V", "200V",
+]);
 const MODEL_PATTERNS = [
-    /[A-Za-z]{2,5}-[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]+)*/g,
-    /[A-Za-z]{1,5}\d{2,}[A-Za-z0-9]*/g,
-    /\d{2,}[A-Za-z]{1,4}\d*[A-Za-z]*/g,
+    /[A-Za-z]{2,6}-[A-Za-z0-9]{1,}(?:-[A-Za-z0-9]+)*/g,
+    /[A-Za-z]{1,8}\d{1,}[A-Za-z0-9]*/g,
+    /\d{1,}[A-Za-z]{1,6}\d*[A-Za-z]*/g,
+    /[A-Za-z]{3,}\s?\d{1,3}[A-Za-z]?/g, // モデル名+数字: Neptune 4, Kobra 3
 ];
 function normModel(s: string): string {
     return (s || "").replace(/[\s　-]/g, "").toUpperCase();
@@ -188,8 +218,10 @@ function extractModelTokens(title: string): string[] {
         if (MODEL_SPEC_BLOCKLIST.has(c)) continue;
         const norm = c.replace(/-/g, "");
         if (/^\d{4}$/.test(norm)) continue;
-        if (/^\d+(?:KG|L|ML|CM|MM|W|V|型|インチ|合|人|点|台|本|畳)$/.test(norm)) continue;
-        if (norm.length < 4) continue;
+        if (/^\d+(?:\.\d+)?(?:KG|G|L|ML|CM|MM|M|W|V|A|型|インチ|合|人|点|台|本|畳|GB|TB|HZ)$/.test(norm)) continue;
+        if (/-/.test(c) || /[A-Za-z]\d|\d[A-Za-z]/.test(c)) {
+            if (norm.length < 2) continue;
+        } else if (norm.length < 4) continue;
         if (!/\d/.test(c) && !c.includes("-")) continue;
         out.push(c);
     }
@@ -200,10 +232,10 @@ function modelMatch(amazonTitle: string, yahooTitle: string): boolean {
     const ym = extractModelTokens(yahooTitle).map(normModel);
     const ystr = normModel(yahooTitle);
     for (const a of am) {
-        if (a.length < 4) continue;
+        if (a.length < 2) continue;
         if (ystr.includes(a)) return true;
         for (const y of ym) {
-            if (y.length < 4) continue;
+            if (y.length < 2) continue;
             if (a.includes(y) || y.includes(a)) return true;
         }
     }
@@ -252,14 +284,19 @@ function capacityStr(c: { value: number; unit: string } | null): string | null {
     return `${c.value}${c.unit}`;
 }
 
-// ===== セット品・ジャンク =====
-const SET_WORDS = ["点セット", "２点", "３点", "４点", "2点", "3点", "4点", "まとめ", "おまとめ", "セット販売", "2台", "3台", "２台", "３台", "2個", "まとめて"];
+// ===== セット品・ジャンク・付属品 =====
+const SET_WORDS = ["点セット", "２点", "３点", "４点", "2点", "3点", "4点", "まとめ", "おまとめ", "セット販売", "セット", "2台", "3台", "２台", "３台", "2個", "個セット", "本セット", "枚セット", "まとめて"];
 const JUNK_WORDS = ["ジャンク", "部品取り", "部品鳥", "現状品", "現状渡し", "故障", "不動", "通電のみ", "通電確認のみ", "ガラス割れ", "難あり", "訳あり", "破損", "動作未確認"];
+const ACCESSORY_WORDS = ["フィラメント", "ノズル", "互換", "純正", "替え", "替刃", "スペア", "交換用", "部品", "パーツ", "ケーブル", "アダプター", "アダプタ", "フィルター", "カートリッジ", "専用ケース", "専用カバー", "マウント", "ホルダー", "スタンド", "保護フィルム", "取扱説明書", "トナー", "インク"];
 function isSetListing(title: string): boolean {
     return SET_WORDS.some((w) => (title || "").includes(w));
 }
 function isJunk(title: string): boolean {
     return JUNK_WORDS.some((w) => (title || "").includes(w));
+}
+function isAccessory(amazonTitle: string, yahooTitle: string): boolean {
+    const y = yahooTitle || "", a = amazonTitle || "";
+    return ACCESSORY_WORDS.some((w) => y.includes(w) && !a.includes(w));
 }
 
 function extractKeyword(title: string): string {
@@ -274,22 +311,21 @@ function extractKeyword(title: string): string {
     return words.slice(0, 3).join(" ").slice(0, 40) || title.slice(0, 20);
 }
 
-/** 同一商品レベルの関連性判定（バックエンドmatching.pyと同一方針） */
+/** 同一商品レベルの関連性判定（根拠ベース・バックエンドmatching.pyと同一方針）
+ *  確証(型番+ブランド一致 / ブランド+容量一致)がある時だけマッチ。無ければ除外。 */
 function isRelevant(amazonTitle: string, yahooTitle: string): boolean {
     const yahoo = yahooTitle || "";
     if (isJunk(yahoo)) return false;
     if (isSetListing(yahoo) && !isSetListing(amazonTitle)) return false;
+    if (isAccessory(amazonTitle, yahoo)) return false;
     const cat = extractCategory(amazonTitle);
     if (cat && !categoryIn(cat, yahoo)) return false;
     if (modelConflict(amazonTitle, yahoo)) return false;
-    if (modelMatch(amazonTitle, yahoo)) return true;
-    const brand = extractBrand(amazonTitle);
+    const brandOk = brandIn(extractBrand(amazonTitle), yahoo);
+    if (modelMatch(amazonTitle, yahoo) && brandOk) return true;
     const aCap = extractCapacity(amazonTitle, cat);
     const yCap = extractCapacity(yahoo, cat);
-    if (brandIn(brand, yahoo) && capacityMatches(aCap, yCap)) return true;
-    if (!brand && extractModelTokens(amazonTitle).length === 0 && !aCap) {
-        return cat ? categoryIn(cat, yahoo) : true;
-    }
+    if (brandOk && capacityMatches(aCap, yCap)) return true;
     return false;
 }
 

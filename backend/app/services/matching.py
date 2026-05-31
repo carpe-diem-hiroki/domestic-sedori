@@ -100,6 +100,10 @@ KNOWN_BRANDS = [
     "ロボロック", "Roborock", "JVC", "ビクター", "Victor", "マクセル", "MAXELL",
     "エレクトロラックス", "Electrolux", "moosoo", "Levoit", "アラジン", "Aladdin",
     "ヤマダ", "MOOSOO", "ティファール", "T-fal",
+    # 3Dプリンター系ブランド
+    "Creality", "クリアリティ", "Bambu Lab", "Bambu", "バンブー", "Anycubic", "エニキュービック",
+    "ELEGOO", "エレゴー", "Voxelab", "FLASHFORGE", "フラッシュフォージュ", "QIDI",
+    "Phrozen", "Sovol", "Kingroon", "Artillery", "Snapmaker", "Prusa",
 ]
 
 # ブランド候補から除外する一般英大文字語（材質/色/機能/規格/汎用）
@@ -145,23 +149,56 @@ def extract_brand(title: str) -> str | None:
     return None
 
 
+# ブランドの英語/日本語など同義表記グループ（クロスプラットフォーム照合用）
+BRAND_GROUPS = [
+    {"Panasonic", "パナソニック"}, {"Hisense", "ハイセンス"}, {"SHARP", "シャープ"},
+    {"TOSHIBA", "東芝"}, {"HITACHI", "日立"}, {"MITSUBISHI", "三菱"},
+    {"SONY", "ソニー"}, {"Haier", "ハイアール"}, {"AQUA", "アクア"},
+    {"IRIS", "アイリスオーヤマ", "アイリス"}, {"YAMAZEN", "山善"},
+    {"Nikon", "ニコン"}, {"Canon", "キヤノン"}, {"PHILIPS", "フィリップス"},
+    {"COMFEE", "コンフィー"}, {"DAIKIN", "ダイキン"}, {"CORONA", "コロナ"},
+    {"ZOJIRUSHI", "象印"}, {"TIGER", "タイガー"}, {"TWINBIRD", "ツインバード"},
+    {"KOIZUMI", "コイズミ"}, {"BALMUDA", "バルミューダ"}, {"DeLonghi", "デロンギ"},
+    {"Dyson", "ダイソン"}, {"Xiaomi", "シャオミ"}, {"Anker", "アンカー"},
+    {"ELEGOO", "エレゴー"}, {"Creality", "クリアリティ"},
+    {"Anycubic", "エニキュービック"}, {"Bambu", "Bambu Lab", "バンブー"},
+    {"iRobot", "ルンバ", "Roomba"}, {"Shark", "シャーク"},
+]
+
+
+def _name_in(name: str, text: str) -> bool:
+    if re.search(r"[a-z]", name.lower()):
+        return _ascii_word_present(name, text.lower())
+    return name in text
+
+
+def _brand_equivalents(brand: str) -> set[str]:
+    for g in BRAND_GROUPS:
+        if brand in g:
+            return g
+    return {brand}
+
+
 def brand_in(brand: str | None, yahoo_title: str) -> bool:
     if not brand:
         return False
     y = yahoo_title or ""
-    if re.search(r"[a-z]", brand.lower()):
-        return _ascii_word_present(brand, y.lower())
-    return brand in y
+    return any(_name_in(n, y) for n in _brand_equivalents(brand))
 
 
 # ===== 型番 =====
-# TYPE-C 等のスペック語は型番扱いしない
-_MODEL_SPEC_BLOCKLIST = {"TYPE-C", "TYPE-A", "USB-C", "USB-A", "USB3", "USB2"}
+# スペック語・汎用語は型番扱いしない
+_MODEL_SPEC_BLOCKLIST = {
+    "TYPE-C", "TYPE-A", "USB-C", "USB-A", "USB3", "USB2",
+    "4K", "8K", "2K", "FHD", "UHD", "MP4", "MP3", "PM2",
+    "3D", "2D", "1080P", "720P", "100V", "200V",
+}
 
 _MODEL_PATTERNS = [
-    r"[A-Za-z]{2,5}-[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]+)*",  # ハイフン型: ES-GE7H-T, IC-SLDC, NE-FL1A
-    r"[A-Za-z]{1,5}\d{2,}[A-Za-z0-9]*",                  # 英字+2桁数字: NP10, AQR32N
-    r"\d{2,}[A-Za-z]{1,4}\d*[A-Za-z]*",                  # 数字始まり: 32A4N, 49Z740X
+    r"[A-Za-z]{2,6}-[A-Za-z0-9]{1,}(?:-[A-Za-z0-9]+)*",  # ハイフン型: ES-GE7H-T, IC-SLDC, NA-FA80
+    r"[A-Za-z]{1,8}\d{1,}[A-Za-z0-9]*",                  # 英字+数字: K2, P2S, Ender3, Neptune4
+    r"\d{1,}[A-Za-z]{1,6}\d*[A-Za-z]*",                  # 数字始まり: 32A4N, 49Z740X
+    r"[A-Za-z]{3,}\s?\d{1,3}[A-Za-z]?",                  # モデル名+数字: Neptune 4, Kobra 3, Mars 5
 ]
 
 
@@ -170,7 +207,7 @@ def _norm_model(s: str) -> str:
 
 
 def extract_model_tokens(title: str) -> list[str]:
-    """型番らしいトークンを抽出（容量/年/スペックを除外）"""
+    """型番らしいトークンを抽出（容量/年/スペックを除外）。短い型番(K2等)も拾う。"""
     t = title or ""
     cands: set[str] = set()
     for pat in _MODEL_PATTERNS:
@@ -183,11 +220,18 @@ def extract_model_tokens(title: str) -> list[str]:
         norm = c.replace("-", "")
         if re.fullmatch(r"\d{4}", norm):  # 西暦
             continue
-        if re.fullmatch(r"\d+(?:KG|L|ML|CM|MM|W|V|型|インチ|合|人|点|台|本|畳)", norm):
+        if re.fullmatch(
+            r"\d+(?:\.\d+)?(?:KG|G|L|ML|CM|MM|M|W|V|A|型|インチ|合|人|点|台|本|畳|GB|TB|HZ)",
+            norm,
+        ):
             continue
-        if len(norm) < 4:
+        # ハイフン型 or 「英字+数字」は長さ2以上で許可、それ以外は4文字以上
+        if "-" in c or re.search(r"[A-Za-z]\d|\d[A-Za-z]", c):
+            if len(norm) < 2:
+                continue
+        elif len(norm) < 4:
             continue
-        # 数字を含むか、英字ハイフン型（IC-SLDC）のみ許可
+        # 数字もハイフンも無い純英字は型番扱いしない
         if not re.search(r"\d", c) and "-" not in c:
             continue
         out.append(c)
@@ -200,12 +244,12 @@ def model_match(amazon_title: str, yahoo_title: str) -> bool:
     ym = [_norm_model(m) for m in extract_model_tokens(yahoo_title)]
     ystr = _norm_model(yahoo_title)
     for a in am:
-        if len(a) < 4:
+        if len(a) < 2:
             continue
         if a in ystr:  # ヤフオクのスペース挿入(ES GE7H)を吸収
             return True
         for y in ym:
-            if len(y) < 4:
+            if len(y) < 2:
                 continue
             if a in y or y in a:  # 接尾辞差(ES-GE7H-T ↔ ES-GE7H)を吸収
                 return True
@@ -279,14 +323,22 @@ def _capacity_str(cap: tuple[float, str] | None) -> str | None:
     return f"{int(v)}{unit}" if v == int(v) else f"{v}{unit}"
 
 
-# ===== セット品・ジャンク =====
+# ===== セット品・ジャンク・付属品 =====
 _SET_WORDS = [
     "点セット", "２点", "３点", "４点", "2点", "3点", "4点", "まとめ", "おまとめ",
-    "セット販売", "2台", "3台", "２台", "３台", "2個", "まとめて",
+    "セット販売", "セット", "2台", "3台", "２台", "３台", "2個", "個セット",
+    "本セット", "枚セット", "まとめて",
 ]
 _JUNK_WORDS = [
     "ジャンク", "部品取り", "部品鳥", "現状品", "現状渡し", "故障", "不動",
     "通電のみ", "通電確認のみ", "ガラス割れ", "難あり", "訳あり", "破損", "動作未確認",
+]
+# 本体ではなく付属品/消耗品/互換部品（本体価格と比較できない）
+_ACCESSORY_WORDS = [
+    "フィラメント", "ノズル", "互換", "純正", "替え", "替刃", "スペア", "交換用",
+    "部品", "パーツ", "ケーブル", "アダプター", "アダプタ", "フィルター", "カートリッジ",
+    "専用ケース", "専用カバー", "マウント", "ホルダー", "スタンド", "保護フィルム",
+    "リモコンのみ", "取扱説明書", "電源コードのみ", "トナー", "インク",
 ]
 
 
@@ -298,6 +350,13 @@ def is_set_listing(title: str) -> bool:
 def is_junk(title: str) -> bool:
     t = title or ""
     return any(w in t for w in _JUNK_WORDS)
+
+
+def is_accessory(amazon_title: str, yahoo_title: str) -> bool:
+    """ヤフオク側が付属品/消耗品で、Amazon側が本体なら比較対象外"""
+    y = yahoo_title or ""
+    a = amazon_title or ""
+    return any(w in y and w not in a for w in _ACCESSORY_WORDS)
 
 
 # ===== トークン重複（フォールバック） =====
@@ -349,21 +408,26 @@ def build_search_keyword(title: str) -> str:
 
 # ===== 関連性判定（本体） =====
 def is_relevant(amazon_title: str, yahoo_title: str, threshold: float = 0.25) -> bool:
-    """同一商品レベルの関連性判定。
+    """同一商品レベルの関連性判定（根拠ベース）。
+
+    「確証のある同定シグナル」がある時だけ True。無ければ False（＝該当なし）。
+    別物・付属品・別容量・別型番を価格差候補に出さないことを最優先する。
 
     判定順:
-      1. ジャンク/セット品は相場に使わないため除外。
+      1. ジャンク / セット・まとめ売り / 付属品・消耗品 → 除外。
       2. カテゴリ同義クラスのゲート（周辺商品=テレビ台等は除外）。
-      3. 両者に型番があり食い違うなら別商品として除外。
-      4. 型番一致 → 同一商品。
+      3. 両者に型番があり食い違うなら別商品 → 除外。
+      4. 型番一致 かつ ブランド一致 → 同一商品。
       5. ブランド一致 かつ 容量一致 → 同一商品。
-      6. 識別子が何も無い商品のみ、トークン重複でフォールバック（高め閾値）。
+      ※ ブランド単独・カテゴリ単独・トークン重複だけでは一致にしない（誤マッチ防止）。
     """
     yahoo = yahoo_title or ""
 
     if is_junk(yahoo):
         return False
     if is_set_listing(yahoo) and not is_set_listing(amazon_title):
+        return False
+    if is_accessory(amazon_title, yahoo):
         return False
 
     cat = extract_category(amazon_title)
@@ -372,17 +436,18 @@ def is_relevant(amazon_title: str, yahoo_title: str, threshold: float = 0.25) ->
 
     if model_conflict(amazon_title, yahoo):
         return False
-    if model_match(amazon_title, yahoo):
+
+    brand_ok = brand_in(extract_brand(amazon_title), yahoo)
+
+    # 型番一致＋ブランド一致＝同一商品（最も確実）
+    if model_match(amazon_title, yahoo) and brand_ok:
         return True
 
-    brand = extract_brand(amazon_title)
+    # ブランド一致＋容量一致＝実質同一商品
     a_cap = extract_capacity(amazon_title, cat)
     y_cap = extract_capacity(yahoo, cat)
-    if brand_in(brand, yahoo) and capacity_matches(a_cap, y_cap):
+    if brand_ok and capacity_matches(a_cap, y_cap):
         return True
-
-    if not brand and not extract_model_tokens(amazon_title) and not a_cap:
-        return relevance_score(amazon_title, yahoo_title) >= threshold
 
     return False
 

@@ -100,6 +100,32 @@ CASES: list[tuple[str, str, bool, str]] = [
         "STAINLESS スチールラック 5段 320L収納 大容量",
         False, "材質語STAINLESSをブランド誤認しない",
     ),
+    # --- 3Dプリンター（全部¥4,980別物問題）の検証 ---
+    (
+        "Creality K2 Plus Combo 3Dプリンター 高速 大型",
+        "Creality 3Dプリンター用 PLA フィラメント 1.75mm 1kg 純正",
+        False, "本体↔フィラメント(消耗品)を除外",
+    ),
+    (
+        "Creality K2 Plus Combo 3Dプリンター 高速 大型",
+        "3Dプリンター ノズル 0.4mm 互換 10個セット",
+        False, "本体↔ノズル(互換部品・セット)を除外",
+    ),
+    (
+        "Bambu Lab P2S Combo 3Dプリンター 多色造形",
+        "3Dプリンター スプール ホルダー スタンド 汎用",
+        False, "本体↔ホルダー(付属品)を除外",
+    ),
+    (
+        "Creality K2 Plus Combo 3Dプリンター 高速",
+        "Creality K2 Plus 3Dプリンター 美品 動作確認済",
+        True, "本体↔同一本体(ブランド+型番一致)",
+    ),
+    (
+        "ELEGOO Neptune 4 Pro 3Dプリンター 高速",
+        "ELEGOO Neptune 4 Pro 3Dプリンター 中古 動作品",
+        True, "本体↔同一本体(ELEGOO Neptune4)",
+    ),
 ]
 
 
