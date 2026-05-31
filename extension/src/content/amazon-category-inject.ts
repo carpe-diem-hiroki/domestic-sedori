@@ -29,10 +29,30 @@ function computeProfit(amazonPrice: number | null, yahooPrice: number | null): P
 
 /** Amazon商品カードの価格表示から数値を抽出（"￥15,800" → 15800） */
 function parseAmazonPrice(itemEl: Element): number | null {
-    const offscreen = itemEl.querySelector(".a-price .a-offscreen");
-    const text = offscreen?.textContent || itemEl.querySelector(".a-price")?.textContent || "";
-    const m = text.replace(/[￥¥,]/g, "").match(/\d+/);
-    return m ? parseInt(m[0], 10) : null;
+    // 複数のセレクタを順に試す（検索/カテゴリでDOMが異なるため）
+    const selectors = [
+        ".a-price .a-offscreen",
+        "span.a-price > span.a-offscreen",
+        ".a-price-whole",
+        "[data-a-color='price'] .a-offscreen",
+        ".a-color-price",
+    ];
+    for (const sel of selectors) {
+        const el = itemEl.querySelector(sel);
+        const t = el?.textContent?.trim();
+        if (t) {
+            const m = t.replace(/[￥¥,]/g, "").match(/\d{2,}/);
+            if (m) return parseInt(m[0], 10);
+        }
+    }
+    // フォールバック: カード内テキストから「¥12,345」形式を拾う
+    const whole = itemEl.textContent || "";
+    const m = whole.match(/[¥￥]\s?([\d,]{3,})/);
+    if (m) {
+        const n = parseInt(m[1].replace(/,/g, ""), 10);
+        if (!Number.isNaN(n)) return n;
+    }
+    return null;
 }
 
 // バックエンド状態キャッシュ（30秒TTL）
@@ -247,6 +267,8 @@ interface SummaryItem {
 }
 
 const summaryStore = new Map<string, SummaryItem>();
+const analyzedAsins = new Set<string>();   // 解析済み商品（重複排除）
+const noPriceAsins = new Set<string>();    // Amazon価格を取れなかった商品
 let summaryEl: HTMLDivElement | null = null;
 let summaryCollapsed = false;
 
@@ -256,11 +278,13 @@ function recordSummary(
     amazonPrice: number | null,
     best: { r: SearchResult; calc: ProfitCalc | null } | undefined
 ) {
-    if (!asin || !amazonPrice || !best || !best.calc) return;
-    // 利益が出るものだけ集約（赤字は除外）
-    if (best.calc.profit <= 0) {
-        summaryStore.delete(asin);
-    } else {
+    if (asin) {
+        analyzedAsins.add(asin);
+        if (!amazonPrice) noPriceAsins.add(asin);
+        else noPriceAsins.delete(asin);
+    }
+    // 利益が出るものだけ集約（赤字・価格不明は除外）
+    if (asin && amazonPrice && best && best.calc && best.calc.profit > 0) {
         summaryStore.set(asin, {
             asin,
             title,
@@ -270,6 +294,8 @@ function recordSummary(
             profit: best.calc.profit,
             rate: best.calc.rate,
         });
+    } else if (asin) {
+        summaryStore.delete(asin);
     }
     renderSummary();
 }
@@ -285,17 +311,22 @@ function getOrCreateSummary(): HTMLDivElement {
 function renderSummary() {
     const el = getOrCreateSummary();
     const items = [...summaryStore.values()].sort((a, b) => b.profit - a.profit);
+    const analyzed = analyzedAsins.size;
+    const noPrice = noPriceAsins.size;
 
-    if (items.length === 0) {
+    // 解析が1件でも走ったら常に表示（利益0でもパネルで状況が分かるように）
+    if (analyzed === 0) {
         el.style.display = "none";
         return;
     }
     el.style.display = "block";
 
+    const headerLabel = `💹 価格差 解析${analyzed}件・利益あり${items.length}件`;
+
     if (summaryCollapsed) {
         el.innerHTML = `
             <div class="sedori-summary-header">
-                <span>💹 価格差 ${items.length}件</span>
+                <span>${headerLabel}</span>
                 <button class="sedori-summary-toggle">▲</button>
             </div>`;
         el.querySelector(".sedori-summary-toggle")?.addEventListener("click", () => {
@@ -305,14 +336,27 @@ function renderSummary() {
         return;
     }
 
-    const rows = items
-        .slice(0, 20)
-        .map(
-            (it, i) => `
+    let body: string;
+    if (items.length === 0) {
+        // 利益が出る商品なし。価格未取得が多い場合はヒントを出す
+        const hint =
+            noPrice >= analyzed
+                ? "Amazon価格を取得できていません（ページ構成が想定外の可能性）"
+                : "利益が出る商品は見つかりませんでした";
+        body = `<div class="sedori-summary-empty">${hint}${
+            noPrice > 0 ? `<br><small>価格未取得: ${noPrice}件</small>` : ""
+        }</div>`;
+    } else {
+        body =
+            `<div class="sedori-summary-list">` +
+            items
+                .slice(0, 20)
+                .map(
+                    (it, i) => `
         <div class="sedori-summary-row${it.rate >= CHANCE_MIN_RATE ? " sedori-summary-chance" : ""}">
             <span class="sedori-summary-rank">${i + 1}</span>
             <div class="sedori-summary-body">
-                <a href="https://www.amazon.co.jp/dp/${it.asin}" target="_blank" class="sedori-summary-title">${it.title.slice(0, 36)}</a>
+                <a href="https://www.amazon.co.jp/dp/${it.asin}" target="_blank" class="sedori-summary-title">${escapeHtml(it.title.slice(0, 36))}</a>
                 <div class="sedori-summary-meta">
                     <span>Y!${formatPrice(it.yahooPrice)}</span>
                     <span>→A${formatPrice(it.amazonPrice)}</span>
@@ -321,15 +365,17 @@ function renderSummary() {
             </div>
             <span class="sedori-summary-profit ${it.rate >= CHANCE_MIN_RATE ? "sedori-profit-good" : "sedori-profit-low"}">+${it.profit.toLocaleString()}<br><small>${it.rate}%</small></span>
         </div>`
-        )
-        .join("");
+                )
+                .join("") +
+            `</div>`;
+    }
 
     el.innerHTML = `
         <div class="sedori-summary-header">
-            <span>💹 価格差ランキング ${items.length}件</span>
+            <span>${headerLabel}</span>
             <button class="sedori-summary-toggle">▼</button>
         </div>
-        <div class="sedori-summary-list">${rows}</div>`;
+        ${body}`;
     el.querySelector(".sedori-summary-toggle")?.addEventListener("click", () => {
         summaryCollapsed = true;
         renderSummary();
