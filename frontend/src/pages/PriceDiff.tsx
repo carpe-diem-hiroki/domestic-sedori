@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { formatPrice } from "../utils/format";
+import { KeepaGraph } from "../components/KeepaGraph";
 import type { PriceDiffResponse, PriceDiffRow } from "../types";
 
 const PLACEHOLDER = `① Amazonのカテゴリ/検索/ランキングURL（全ASINを自動収集）
@@ -13,11 +14,6 @@ const PLACEHOLDER = `① Amazonのカテゴリ/検索/ランキングURL（全AS
   例:
   B09XYDQZV6
   B08N5WRWNW`;
-
-/** Keepaの価格推移グラフ画像（公開エンドポイント・APIキー不要） */
-function keepaGraphUrl(asin: string): string {
-  return `https://graph.keepa.com/pricehistory.png?asin=${asin}&domain=co.jp&width=440&height=150&range=90&amazon=1&new=1&salesrank=1`;
-}
 
 function MemoField({ asin }: { asin: string }) {
   const key = `sedori-memo-${asin}`;
@@ -44,7 +40,6 @@ function MemoField({ asin }: { asin: string }) {
 }
 
 function ResultRow({ r }: { r: PriceDiffRow }) {
-  const [graphOk, setGraphOk] = useState(true);
   const isChance = r.profit_rate != null && r.profit_rate >= 15 && (r.profit ?? 0) > 0;
 
   return (
@@ -100,19 +95,7 @@ function ResultRow({ r }: { r: PriceDiffRow }) {
               : r.amazon_title
             : "(タイトル取得失敗)"}
         </a>
-        {graphOk ? (
-          <a href={`https://keepa.com/#!product/5-${r.asin}`} target="_blank" rel="noopener noreferrer">
-            <img
-              src={keepaGraphUrl(r.asin)}
-              alt="Keepa価格推移"
-              loading="lazy"
-              onError={() => setGraphOk(false)}
-              style={{ width: "100%", maxWidth: 440, border: "1px solid #eee", borderRadius: 4 }}
-            />
-          </a>
-        ) : (
-          <div style={{ fontSize: 11, color: "#aaa" }}>Keepaグラフを表示できません</div>
-        )}
+        <KeepaGraph asin={r.asin} width={440} height={150} />
       </div>
 
       {/* 3. 価格比較（Amazon販売 vs ヤフオク仕入れ複数） */}

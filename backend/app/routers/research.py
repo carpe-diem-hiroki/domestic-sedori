@@ -40,7 +40,9 @@ AMAZON_CONCURRENCY = 3
 class PriceDiffRequest(BaseModel):
     query: str          # Amazon一覧URL もしくは 改行/空白/カンマ区切りのASIN列
     shipping_cost: int = 800
-    use_keepa: bool = True  # Keepa有効時にJAN/型番で精度を上げる
+    # Keepa「APIキー」での照合強化。既定オフ（有料のため）。
+    # 無料のKeepaグラフ画像はキー無しでフロントに表示される（API不使用）。
+    use_keepa: bool = False
 
 
 class YahooListing(BaseModel):

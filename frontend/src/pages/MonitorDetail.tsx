@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useApi } from "../hooks/useApi";
 import { formatPrice } from "../utils/format";
 import { PriceChart } from "../components/PriceChart";
+import { KeepaGraph } from "../components/KeepaGraph";
 import type {
   AuctionDetail,
   HistoryResponse,
@@ -398,7 +399,17 @@ export function MonitorDetail() {
         </table>
       </div>
 
-      {/* 価格推移グラフ */}
+      {/* Amazon価格推移（Keepa・無料グラフ） */}
+      {monitor?.asin && (
+        <div className="card">
+          <h3 style={{ fontSize: 14, color: "#666", marginBottom: 12 }}>
+            Amazon価格推移（Keepa）
+          </h3>
+          <KeepaGraph asin={monitor.asin} width={760} height={200} range={90} />
+        </div>
+      )}
+
+      {/* 価格推移グラフ（ヤフオク相場・当ツール記録） */}
       {id && <PriceChart linkId={parseInt(id, 10)} />}
 
       {/* 落札履歴 */}
