@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     chance_min_profit_rate: float = 15.0   # 利益率（%）以上で通知
     chance_min_profit_amount: int = 1000   # かつ利益額（円）以上で通知
     chance_default_shipping: int = 800     # 利益計算に使う送料
+    # Keepa（Amazon価格履歴API）将来連携用。.env に KEEPA_API_KEY を入れると有効化
+    keepa_api_key: str = ""
+    keepa_domain: int = 5  # Amazonドメイン: 5=co.jp（日本）
     # Notification
     max_notifications: int = 100
     # General

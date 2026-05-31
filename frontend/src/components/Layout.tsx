@@ -17,6 +17,7 @@ interface NavSection {
 }
 
 const NAV_SECTIONS: NavSection[] = [
+  { basePath: "/research", label: "リサーチ", icon: "🔍" },
   {
     basePath: "/monitors",
     label: "監視中の商品",
