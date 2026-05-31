@@ -74,6 +74,46 @@ def extract_model_tokens(title: str) -> list[str]:
     return toks
 
 
+# セット/まとめ売りを示す語（単品Amazonとは比較対象にしない）
+_SET_WORDS = ["点セット", "２点", "３点", "４点", "2点", "3点", "4点", "まとめ", "セット"]
+
+
+def is_set_listing(title: str) -> bool:
+    """セット・まとめ売りの出品か"""
+    t = title or ""
+    return any(w in t for w in _SET_WORDS)
+
+
+def extract_capacity(title: str) -> tuple[float, str] | None:
+    """容量を抽出。洗濯機等は kg、冷蔵庫等は L。複数あれば最大値（総容量）を採用。
+
+    例: "幅49cm 175L 大容量冷蔵室122L" -> (175.0, 'L')
+        "洗濯機 5.5kg" -> (5.5, 'kg')
+    """
+    t = title or ""
+    kgs = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*kg", t, re.I)]
+    if kgs:
+        return (max(kgs), "kg")
+    ls = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*[lL](?![a-zA-Z])", t)]
+    ls += [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*リットル", t)]
+    if ls:
+        return (max(ls), "L")
+    return None
+
+
+def capacity_matches(
+    a_cap: tuple[float, str] | None,
+    y_cap: tuple[float, str] | None,
+    tol: float = 0.06,
+) -> bool:
+    """容量が（単位一致＋値が許容誤差内で）一致するか"""
+    if not a_cap or not y_cap:
+        return False
+    if a_cap[1] != y_cap[1] or a_cap[0] <= 0:
+        return False
+    return abs(a_cap[0] - y_cap[0]) / a_cap[0] <= tol
+
+
 def _significant_tokens(text: str) -> set[str]:
     """関連性判定に使う有意トークンを抽出"""
     text = text or ""
@@ -99,25 +139,29 @@ _STOPWORDS = {
 }
 
 
+def _capacity_str(cap: tuple[float, str] | None) -> str | None:
+    if not cap:
+        return None
+    v, unit = cap
+    return f"{int(v)}{unit}" if v == int(v) else f"{v}{unit}"
+
+
 def build_search_keyword(title: str) -> str:
     """検索精度の高いキーワードを生成
 
-    方針: 「ブランド + カテゴリ」を最優先（同一商品に絞るため）。
-    ブランドが取れなければ「カテゴリ + 容量」、それも無ければ先頭語。
+    方針: 「ブランド + カテゴリ + 容量」で同一商品に絞る。
+    （例: アイリスオーヤマ 冷蔵庫 320L / ハイセンス 洗濯機 5.5kg）
     """
     cat = extract_category(title)
     brand = extract_brand(title)
-    cap = re.search(r"\d+\.?\d*(?:kg|L|インチ|型)", title or "", re.I)
+    capstr = _capacity_str(extract_capacity(title))
 
-    if brand and cat:
-        return f"{brand} {cat}"
-    if cat and cap:
-        return f"{cat} {cap.group(0)}"
-    if cat:
-        return cat
-    if brand:
-        return brand
-    # フォールバック: 先頭の有意語を数個
+    parts = [p for p in (brand, cat, capstr) if p]
+    if parts:
+        return " ".join(parts)
+    models = extract_model_tokens(title)
+    if models:
+        return models[0]
     words = [w for w in re.split(r"[\s　]+", title or "") if w]
     return " ".join(words[:3])[:40] or (title or "")[:20]
 
@@ -135,30 +179,37 @@ def relevance_score(amazon_title: str, yahoo_title: str) -> float:
 def is_relevant(amazon_title: str, yahoo_title: str, threshold: float = 0.1) -> bool:
     """関連性判定（同一商品レベルの精度）
 
-    1. カテゴリ語が取れる場合は、ヤフオク側にも同カテゴリ語が必須（ジャンル違いを除外）。
-    2. さらに「ブランド」または「型番」がヤフオク側に一致することを必須にする
-       （別ブランド・別型番の同カテゴリ品＝別商品を除外）。
-       例: SAMKYO B500 洗濯機 ↔ シャープ ES-GE7H-T 洗濯機 は不一致で除外。
-    3. ブランドも型番も取れない商品は、トークン重複率で判定（フォールバック）。
+    判定順:
+      1. カテゴリ一致（必須ゲート）。違えば除外。
+      2. セット/まとめ売りは単品Amazonと非対応として除外。
+      3. 型番一致 → 同一商品とみなす（最強の同定）。
+      4. ブランド一致 かつ 容量一致 → 同一商品とみなす（別容量・別モデルを除外）。
+      5. ブランド・型番・容量がいずれも取れない商品のみ、トークン重複でフォールバック。
     """
     yahoo = yahoo_title or ""
-    yahoo_lower = yahoo.lower()
 
     cat = extract_category(amazon_title)
     if cat and cat not in yahoo:
-        return False  # カテゴリ違いは即除外
+        return False  # ジャンル違いを除外
+
+    # セット品（冷蔵庫＋洗濯機 2点セット 等）は単品と比較しない
+    if is_set_listing(yahoo) and not is_set_listing(amazon_title):
+        return False
+
+    models = extract_model_tokens(amazon_title)
+    if any(m in yahoo.upper() for m in models):
+        return True  # 型番一致＝同一商品
 
     brand = extract_brand(amazon_title)
-    models = extract_model_tokens(amazon_title)
+    a_cap = extract_capacity(amazon_title)
+    y_cap = extract_capacity(yahoo)
+    brand_ok = bool(brand and brand.lower() in yahoo.lower())
+    cap_ok = capacity_matches(a_cap, y_cap)
+    if brand_ok and cap_ok:
+        return True  # ブランド＋容量一致＝実質同一商品
 
-    # ブランド or 型番のいずれかが一致すれば「同一商品候補」
-    if brand and brand.lower() in yahoo_lower:
-        return True
-    if any(m in yahoo.upper() for m in models):
-        return True
-
-    # ブランド・型番が特定できない商品のみ、トークン重複でフォールバック判定
-    if not brand and not models:
+    # 識別子が何も取れない商品のみ、トークン重複でフォールバック
+    if not brand and not models and not a_cap:
         return relevance_score(amazon_title, yahoo_title) >= threshold
 
     return False

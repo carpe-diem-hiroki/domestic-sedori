@@ -126,31 +126,69 @@ function extractModelTokens(title: string): string[] {
     return toks;
 }
 
+const SET_WORDS = ["点セット", "２点", "３点", "４点", "2点", "3点", "4点", "まとめ", "セット"];
+function isSetListing(title: string): boolean {
+    return SET_WORDS.some((w) => (title || "").includes(w));
+}
+
+/** 容量抽出: 洗濯機等はkg、冷蔵庫等はL。複数あれば最大値（総容量）。 */
+function extractCapacity(title: string): { value: number; unit: string } | null {
+    const t = title || "";
+    const kgs = [...t.matchAll(/(\d+(?:\.\d+)?)\s*kg/gi)].map((m) => parseFloat(m[1]));
+    if (kgs.length) return { value: Math.max(...kgs), unit: "kg" };
+    const ls = [...t.matchAll(/(\d+(?:\.\d+)?)\s*[lL](?![a-zA-Z])/g)].map((m) => parseFloat(m[1]));
+    const ls2 = [...t.matchAll(/(\d+(?:\.\d+)?)\s*リットル/g)].map((m) => parseFloat(m[1]));
+    const all = [...ls, ...ls2];
+    if (all.length) return { value: Math.max(...all), unit: "L" };
+    return null;
+}
+
+function capacityMatches(
+    a: { value: number; unit: string } | null,
+    b: { value: number; unit: string } | null,
+    tol = 0.06
+): boolean {
+    if (!a || !b || a.unit !== b.unit || a.value <= 0) return false;
+    return Math.abs(a.value - b.value) / a.value <= tol;
+}
+
+function capacityStr(c: { value: number; unit: string } | null): string | null {
+    if (!c) return null;
+    return c.value === Math.floor(c.value) ? `${c.value}${c.unit}` : `${c.value}${c.unit}`;
+}
+
 function extractKeyword(title: string): string {
-    // ブランド＋カテゴリ を最優先（同一商品に絞る）
+    // ブランド＋カテゴリ＋容量 で同一商品に絞る
     const cat = extractCategory(title);
     const brand = extractBrand(title);
-    const cap = title.match(/\d+\.?\d*(?:kg|L|インチ|型)/i);
-    if (brand && cat) return `${brand} ${cat}`;
-    if (cat && cap) return `${cat} ${cap[0]}`;
-    if (cat) return cat;
-    if (brand) return brand;
+    const capstr = capacityStr(extractCapacity(title));
+    const parts = [brand, cat, capstr].filter((p): p is string => !!p);
+    if (parts.length) return parts.join(" ");
+    const models = extractModelTokens(title);
+    if (models.length) return models[0];
     const words = title.split(/[\s　]+/).filter((w) => w.length > 0);
     return words.slice(0, 3).join(" ").slice(0, 40) || title.slice(0, 20);
 }
 
-/** 同一商品レベルの関連性判定: カテゴリ一致＋ブランドor型番一致を必須 */
+/** 同一商品レベルの関連性判定: カテゴリ一致＋(型番一致 or ブランド＋容量一致) */
 function isRelevant(amazonTitle: string, yahooTitle: string): boolean {
     const yahoo = yahooTitle || "";
     const cat = extractCategory(amazonTitle);
     if (cat && !yahoo.includes(cat)) return false; // ジャンル違い除外
+    // セット品は単品と比較しない
+    if (isSetListing(yahoo) && !isSetListing(amazonTitle)) return false;
+
+    const models = extractModelTokens(amazonTitle);
+    if (models.some((m) => yahoo.toUpperCase().includes(m))) return true; // 型番一致
 
     const brand = extractBrand(amazonTitle);
-    const models = extractModelTokens(amazonTitle);
-    if (brand && yahoo.toLowerCase().includes(brand.toLowerCase())) return true;
-    if (models.some((m) => yahoo.toUpperCase().includes(m))) return true;
-    // ブランドも型番も無い商品のみ、カテゴリ一致で許容
-    if (!brand && models.length === 0) return cat ? yahoo.includes(cat) : true;
+    const aCap = extractCapacity(amazonTitle);
+    const yCap = extractCapacity(yahoo);
+    const brandOk = !!(brand && yahoo.toLowerCase().includes(brand.toLowerCase()));
+    if (brandOk && capacityMatches(aCap, yCap)) return true; // ブランド＋容量一致
+
+    // 識別子が何も無い商品のみカテゴリ一致で許容
+    if (!brand && models.length === 0 && !aCap) return cat ? yahoo.includes(cat) : true;
     return false;
 }
 
