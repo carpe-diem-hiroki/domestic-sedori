@@ -43,8 +43,16 @@ class PriceDiffRequest(BaseModel):
     use_keepa: bool = True  # Keepa有効時にJAN/型番で精度を上げる
 
 
+class YahooListing(BaseModel):
+    title: str
+    price: int | None
+    url: str
+    image_url: str | None = None
+
+
 class PriceDiffRow(BaseModel):
     asin: str
+    jan: str | None = None
     amazon_title: str
     amazon_price: int | None
     amazon_image: str | None
@@ -52,6 +60,7 @@ class PriceDiffRow(BaseModel):
     best_yahoo_price: int | None
     best_yahoo_url: str | None
     best_yahoo_title: str | None
+    yahoo_listings: list[YahooListing] = []   # 関連出品の上位（安い順）
     profit: int | None
     profit_rate: float | None
     error: str | None = None
@@ -187,6 +196,15 @@ async def _build_row(
     # 中央値に最も近い出品を代表リンクに
     rep_item = min(relevant, key=lambda r: abs((r.current_price or 0) - (rep_price or 0)))
 
+    # 関連出品を安い順に上位5件（複数の仕入れ先を並べて見せる）
+    listings = sorted(relevant, key=lambda r: r.current_price or 0)[:5]
+    yahoo_listings = [
+        YahooListing(
+            title=r.title, price=r.current_price, url=r.url, image_url=r.image_url
+        )
+        for r in listings
+    ]
+
     profit = None
     profit_rate = None
     if rep_price and amazon_price:
@@ -201,6 +219,7 @@ async def _build_row(
 
     return PriceDiffRow(
         asin=asin,
+        jan=jan_codes[0] if jan_codes else None,
         amazon_title=title,
         amazon_price=amazon_price,
         amazon_image=image,
@@ -208,6 +227,7 @@ async def _build_row(
         best_yahoo_price=rep_price,
         best_yahoo_url=rep_item.url,
         best_yahoo_title=rep_item.title,
+        yahoo_listings=yahoo_listings,
         profit=profit,
         profit_rate=profit_rate,
     )

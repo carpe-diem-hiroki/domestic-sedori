@@ -158,8 +158,16 @@ export interface ChanceListResponse {
   min_profit_amount: number;
 }
 
+export interface YahooListing {
+  title: string;
+  price: number | null;
+  url: string;
+  image_url: string | null;
+}
+
 export interface PriceDiffRow {
   asin: string;
+  jan: string | null;
   amazon_title: string;
   amazon_price: number | null;
   amazon_image: string | null;
@@ -167,6 +175,7 @@ export interface PriceDiffRow {
   best_yahoo_price: number | null;
   best_yahoo_url: string | null;
   best_yahoo_title: string | null;
+  yahoo_listings: YahooListing[];
   profit: number | null;
   profit_rate: number | null;
   error: string | null;
