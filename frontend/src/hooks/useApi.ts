@@ -12,6 +12,7 @@ import type {
   SchedulerStatus,
   SearchResult,
   SnapshotPoint,
+  StatsSummary,
   Template,
 } from "../types";
 
@@ -67,6 +68,9 @@ const api = {
 
   getSnapshots: (id: number, days = 30) =>
     fetchJson<SnapshotPoint[]>(`${API}/monitor/${id}/snapshots?days=${days}`),
+
+  getStats: (period: "month" | "all" = "month") =>
+    fetchJson<StatsSummary>(`${API}/stats/summary?period=${period}`),
 
   listChances: (minProfitRate?: number, minProfitAmount?: number) => {
     const params = new URLSearchParams();

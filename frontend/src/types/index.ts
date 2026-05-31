@@ -158,6 +158,32 @@ export interface ChanceListResponse {
   min_profit_amount: number;
 }
 
+export interface StatsSummary {
+  period: string;
+  inventory: { active_count: number; total_price: number };
+  sold: {
+    count: number;
+    total_sales: number;
+    total_profit: number;
+    avg_profit_rate: number;
+  };
+  monitors: { active: number; ended: number };
+  price_bands: {
+    label: string;
+    sold_count: number;
+    total_profit: number;
+    avg_profit_rate: number;
+  }[];
+  recent_sold: {
+    listing_id: number;
+    asin: string;
+    product_title: string;
+    sold_price: number | null;
+    actual_profit: number | null;
+    sold_date: string | null;
+  }[];
+}
+
 export interface NotificationItem {
   id: number;
   type: string;
