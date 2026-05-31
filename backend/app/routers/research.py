@@ -17,6 +17,11 @@ from app.database import async_session
 from app.scrapers.amazon_listing import _is_amazon_listing_url, harvest_amazon_listing
 from app.scrapers.amazon_product import get_amazon_product
 from app.scrapers.yahoo_search import search_yahoo_auctions
+from app.services.matching import (
+    build_search_keyword,
+    is_relevant,
+    representative_price,
+)
 from app.services.pricing import calculate_pricing
 from app.models import Product
 
@@ -50,15 +55,6 @@ class PriceDiffResponse(BaseModel):
     mode: str           # "url" or "asins"
     items: list[PriceDiffRow]
     total: int
-
-
-def _extract_keyword(title: str) -> str:
-    """商品タイトルから検索キーワードを抽出（拡張機能と同じ方針）"""
-    m = re.search(r"[A-Z]{1,4}[-]?\d{2,5}[A-Z]{0,3}\d{0,4}[A-Z]?(?:[-]\d+)?", title, re.I)
-    if m:
-        return m.group(0)
-    words = [w for w in re.split(r"[\s　]+", title) if w]
-    return " ".join(words[:3])[:40] or title[:20]
 
 
 def _parse_asins(text: str) -> list[str]:
@@ -123,8 +119,8 @@ async def _build_row(
     shipping_cost: int,
     sem: asyncio.Semaphore,
 ) -> PriceDiffRow:
-    """1商品分: ヤフオク検索→最安値→利益を計算"""
-    keyword = _extract_keyword(title) if title else asin
+    """1商品分: ヤフオク検索→関連性フィルタ→相場(中央値)→利益を計算"""
+    keyword = build_search_keyword(title) if title else asin
     async with sem:
         try:
             results = await search_yahoo_auctions(keyword)
@@ -136,15 +132,32 @@ async def _build_row(
                 profit_rate=None, error=f"Y!検索失敗: {e}",
             )
 
-    priced = [r for r in results if r.current_price is not None]
-    best = min(priced, key=lambda r: r.current_price) if priced else None
+    # 関連性フィルタ: カテゴリ違い・無関係な商品を除外（誤マッチ防止）
+    relevant = [
+        r for r in results
+        if r.current_price is not None and is_relevant(title, r.title)
+    ]
+
+    if not relevant:
+        return PriceDiffRow(
+            asin=asin, amazon_title=title, amazon_price=amazon_price,
+            amazon_image=image, yahoo_count=len(results), best_yahoo_price=None,
+            best_yahoo_url=None, best_yahoo_title=None, profit=None,
+            profit_rate=None,
+            error="ヤフオクに該当商品なし（同カテゴリの一致なし）",
+        )
+
+    # 仕入れ見込み価格＝関連結果の中央値（1円開始などの外れ値を排除）
+    rep_price = representative_price([r.current_price for r in relevant])
+    # 中央値に最も近い出品を代表リンクに
+    rep_item = min(relevant, key=lambda r: abs((r.current_price or 0) - (rep_price or 0)))
 
     profit = None
     profit_rate = None
-    if best and amazon_price:
+    if rep_price and amazon_price:
         calc = calculate_pricing(
             selling_price=amazon_price,
-            expected_winning_price=best.current_price,
+            expected_winning_price=rep_price,
             category=category,
             shipping_cost=shipping_cost,
         )
@@ -156,10 +169,10 @@ async def _build_row(
         amazon_title=title,
         amazon_price=amazon_price,
         amazon_image=image,
-        yahoo_count=len(results),
-        best_yahoo_price=best.current_price if best else None,
-        best_yahoo_url=best.url if best else None,
-        best_yahoo_title=best.title if best else None,
+        yahoo_count=len(relevant),
+        best_yahoo_price=rep_price,
+        best_yahoo_url=rep_item.url,
+        best_yahoo_title=rep_item.title,
         profit=profit,
         profit_rate=profit_rate,
     )

@@ -68,14 +68,48 @@ async function isBackendAvailable(): Promise<boolean> {
     return available;
 }
 
+// 家電カテゴリ語（長い順にマッチ）。誤マッチ防止のゲートにも使う
+const CATEGORY_WORDS = [
+    "オーブンレンジ", "電子レンジ", "ロボット掃除機", "空気清浄機", "食器洗い乾燥機",
+    "液晶テレビ", "有機ELテレビ", "コーヒーメーカー", "電気ケトル", "炊飯器",
+    "洗濯機", "乾燥機", "冷蔵庫", "冷凍庫", "製氷機", "テレビ", "モニター", "ディスプレイ",
+    "掃除機", "エアコン", "扇風機", "サーキュレーター", "ドライヤー", "加湿器", "除湿機",
+    "食洗機", "トースター", "ケトル", "ヒーター", "ストーブ", "こたつ", "アイロン",
+    "ミシン", "カメラ", "スピーカー", "イヤホン", "ヘッドホン", "プリンター",
+    "ホットプレート", "コンロ", "グリル", "レンジ", "時計", "腕時計",
+].sort((a, b) => b.length - a.length);
+
+function extractCategory(title: string): string | null {
+    for (const w of CATEGORY_WORDS) {
+        if (title.includes(w)) return w;
+    }
+    return null;
+}
+
 function extractKeyword(title: string): string {
-    // モデル番号を優先（例: WH-1000XM5, RTX3090, A-67161）
-    const match = title.match(/[A-Z]{1,4}[-]?\d{2,5}[A-Z]{0,3}\d{0,4}[A-Z]?(?:[-]\d+)?/i);
-    if (match) return match[0];
-    // スペース（全角・半角）で分割して最初の3語、40文字上限
-    const words = title.split(/[\s　]+/).filter(w => w.length > 0);
-    const keyword = words.slice(0, 3).join(" ").slice(0, 40);
-    return keyword || title.slice(0, 20);
+    // カテゴリ語＋容量/サイズ を優先（単独型番は別ジャンルへ誤爆するため避ける）
+    const cat = extractCategory(title);
+    const cap = title.match(/\d+\.?\d*(?:kg|L|インチ|型)/i);
+    if (cat && cap) return `${cat} ${cap[0]}`;
+    if (cat) return cat;
+    // フォールバック: 先頭3語
+    const words = title.split(/[\s　]+/).filter((w) => w.length > 0);
+    return words.slice(0, 3).join(" ").slice(0, 40) || title.slice(0, 20);
+}
+
+/** Amazon商品タイトルとヤフオク出品タイトルが同カテゴリか（誤マッチ除外） */
+function isRelevant(amazonTitle: string, yahooTitle: string): boolean {
+    const cat = extractCategory(amazonTitle);
+    if (cat) return yahooTitle.includes(cat);
+    return true; // カテゴリ不明なら除外しない
+}
+
+/** 中央値（1円開始などの外れ値の影響を抑える） */
+function median(values: number[]): number | null {
+    const v = values.filter((n) => n > 0).sort((a, b) => a - b);
+    if (v.length === 0) return null;
+    const mid = Math.floor(v.length / 2);
+    return v.length % 2 === 0 ? Math.round((v[mid - 1] + v[mid]) / 2) : v[mid];
 }
 
 function formatPrice(price: number | null): string {
@@ -244,16 +278,6 @@ function attachHoverListeners(panel: HTMLDivElement) {
 
 // ===== ミニパネル描画 =====
 
-/** 利益額に応じたバッジHTMLを返す */
-function profitBadge(calc: ProfitCalc | null): string {
-    if (!calc) return "";
-    if (calc.profit < 0) {
-        return `<span class="sedori-profit sedori-profit-loss">${calc.profit.toLocaleString()}円</span>`;
-    }
-    const cls = calc.rate >= CHANCE_MIN_RATE ? "sedori-profit-good" : "sedori-profit-low";
-    return `<span class="sedori-profit ${cls}">+${calc.profit.toLocaleString()}円 (${calc.rate}%)</span>`;
-}
-
 // ===== 価格差サマリー（ページ全体を利益順に集約する浮動パネル） =====
 
 interface SummaryItem {
@@ -276,23 +300,24 @@ function recordSummary(
     asin: string,
     title: string,
     amazonPrice: number | null,
-    best: { r: SearchResult; calc: ProfitCalc | null } | undefined
+    repItem: SearchResult | null,
+    calc: ProfitCalc | null
 ) {
     if (asin) {
         analyzedAsins.add(asin);
         if (!amazonPrice) noPriceAsins.add(asin);
         else noPriceAsins.delete(asin);
     }
-    // 利益が出るものだけ集約（赤字・価格不明は除外）
-    if (asin && amazonPrice && best && best.calc && best.calc.profit > 0) {
+    // 利益が出るものだけ集約（赤字・価格不明・該当なしは除外）
+    if (asin && amazonPrice && repItem && calc && calc.profit > 0) {
         summaryStore.set(asin, {
             asin,
             title,
             amazonPrice,
-            yahooPrice: best.r.current_price ?? 0,
-            yahooUrl: best.r.url,
-            profit: best.calc.profit,
-            rate: best.calc.rate,
+            yahooPrice: repItem.current_price ?? 0,
+            yahooUrl: repItem.url,
+            profit: calc.profit,
+            rate: calc.rate,
         });
     } else if (asin) {
         summaryStore.delete(asin);
@@ -314,14 +339,13 @@ function renderSummary() {
     const analyzed = analyzedAsins.size;
     const noPrice = noPriceAsins.size;
 
-    // 解析が1件でも走ったら常に表示（利益0でもパネルで状況が分かるように）
-    if (analyzed === 0) {
-        el.style.display = "none";
-        return;
-    }
+    // 起動直後から常に表示（新ビルドが動いているか即分かる）
     el.style.display = "block";
 
-    const headerLabel = `💹 価格差 解析${analyzed}件・利益あり${items.length}件`;
+    const headerLabel =
+        analyzed === 0
+            ? `💹 価格差ツール起動中… スクロールで解析`
+            : `💹 価格差 解析${analyzed}件・利益あり${items.length}件`;
 
     if (summaryCollapsed) {
         el.innerHTML = `
@@ -391,30 +415,46 @@ function renderMiniResults(
 ) {
     if (results.length === 0) {
         panel.innerHTML = `<div class="sedori-mini-empty">出品なし</div>`;
+        recordSummary(asin, productTitle, amazonPrice, null, null);
         return;
     }
 
-    // 各結果に利益を付与し、利益の高い順に並べ替え（利益不明は末尾）
-    const enriched = results.map((r) => ({
-        r,
-        calc: computeProfit(amazonPrice, r.current_price),
-    }));
-    enriched.sort((a, b) => (b.calc?.profit ?? -Infinity) - (a.calc?.profit ?? -Infinity));
+    // 関連性フィルタ: 同カテゴリの出品だけを残す（別ジャンルの誤マッチを除外）
+    const relevant = results.filter(
+        (r) => r.current_price != null && isRelevant(productTitle, r.title)
+    );
 
-    const best = enriched[0]?.calc ?? null;
-    const hasChance = enriched.some((e) => e.calc && e.calc.rate >= CHANCE_MIN_RATE && e.calc.profit > 0);
+    if (relevant.length === 0) {
+        panel.innerHTML = `<div class="sedori-mini-empty">該当なし（同カテゴリの出品なし）</div>`;
+        recordSummary(asin, productTitle, amazonPrice, null, null);
+        return;
+    }
 
-    // ページ全体サマリーへ反映
-    recordSummary(asin, productTitle, amazonPrice, enriched[0]);
+    // 相場＝関連結果の中央値（1円開始などの外れ値を排除）
+    const repPrice = median(relevant.map((r) => r.current_price as number));
+    const calc = computeProfit(amazonPrice, repPrice);
+    // 中央値に最も近い出品を代表に
+    const repItem = relevant.reduce((b, r) =>
+        Math.abs((r.current_price ?? 0) - (repPrice ?? 0)) <
+        Math.abs((b.current_price ?? 0) - (repPrice ?? 0))
+            ? r
+            : b
+    , relevant[0]);
 
-    const items = enriched
+    // ページ全体サマリーへ反映（中央値ベース）
+    recordSummary(asin, productTitle, amazonPrice, repItem, calc);
+
+    const hasChance = !!(calc && calc.rate >= CHANCE_MIN_RATE && calc.profit > 0);
+
+    // 関連出品を価格の安い順に上位5件表示（参考用、個別の利益バッジは出さない）
+    const sorted = [...relevant].sort(
+        (a, b) => (a.current_price ?? 0) - (b.current_price ?? 0)
+    );
+    const items = sorted
         .slice(0, 5)
-        .map(({ r, calc }) => {
-            const chanceCls = calc && calc.rate >= CHANCE_MIN_RATE && calc.profit > 0
-                ? " sedori-mini-item-chance"
-                : "";
-            return `
-        <div class="sedori-mini-item${chanceCls}" data-auction-id="${r.auction_id}">
+        .map(
+            (r) => `
+        <div class="sedori-mini-item" data-auction-id="${r.auction_id}">
             ${r.image_url
                 ? `<img class="sedori-mini-thumb" src="${r.image_url}" alt="" />`
                 : `<div class="sedori-mini-thumb sedori-mini-nothumb"></div>`}
@@ -423,27 +463,26 @@ function renderMiniResults(
                 <div class="sedori-mini-meta">
                     <span class="sedori-mini-price">${formatPrice(r.current_price)}</span>
                     ${r.buy_now_price ? `<span class="sedori-mini-buynow">即決:${formatPrice(r.buy_now_price)}</span>` : ""}
-                    ${profitBadge(calc)}
                     <span class="sedori-mini-time">${r.end_time_text || ""}</span>
                     <span>入札:${r.bid_count ?? 0}</span>
                 </div>
             </div>
-        </div>`;
-        })
+        </div>`
+        )
         .join("");
 
     const headerExtra = amazonPrice
-        ? `<span class="sedori-mini-amazon">Amazon ${formatPrice(amazonPrice)}</span>`
+        ? `<span class="sedori-mini-amazon">A ${formatPrice(amazonPrice)} / 相場 ${formatPrice(repPrice)}</span>`
         : "";
-    const bestBadge = best && best.profit > 0
-        ? `<span class="sedori-mini-best ${best.rate >= CHANCE_MIN_RATE ? "sedori-profit-good" : "sedori-profit-low"}">最大 +${best.profit.toLocaleString()}円</span>`
+    const profitB = calc && calc.profit > 0
+        ? `<span class="sedori-mini-best ${calc.rate >= CHANCE_MIN_RATE ? "sedori-profit-good" : "sedori-profit-low"}">利益+${calc.profit.toLocaleString()}円(${calc.rate}%)</span>`
         : "";
 
     panel.innerHTML = `
         <div class="sedori-mini-header${hasChance ? " sedori-mini-header-chance" : ""}">
-            <span>${hasChance ? "🔥 " : ""}ヤフオク ${results.length}件</span>
+            <span>${hasChance ? "🔥 " : ""}ヤフオク ${relevant.length}件</span>
             ${headerExtra}
-            ${bestBadge}
+            ${profitB}
         </div>
         <div class="sedori-mini-items">${items}</div>`;
 
@@ -583,5 +622,6 @@ const observer = new MutationObserver(() => {
 });
 
 console.log(`[Sedori] amazon-category-inject: loaded. url=${location.href}`);
+renderSummary(); // 起動直後にパネルを表示（動作確認用）
 injectAll();
 observer.observe(document.body, { childList: true, subtree: true });

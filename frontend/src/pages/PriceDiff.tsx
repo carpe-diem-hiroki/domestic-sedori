@@ -39,6 +39,10 @@ export function PriceDiff() {
       <p style={{ color: "#666", fontSize: 13, marginBottom: 12 }}>
         Amazon一覧ページのURLを貼ると、そのページの全商品ASINを自動収集して
         ヤフオク相場との価格差を一気に算出します。ASINの直接貼り付けも可能です。
+        <br />
+        <span style={{ fontSize: 12, color: "#999" }}>
+          ※ 同カテゴリの出品のみを対象に、相場は中央値で算出（1円開始などの外れ値や別ジャンルの誤マッチを除外）。
+        </span>
       </p>
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -90,7 +94,7 @@ export function PriceDiff() {
                 <tr>
                   <th>商品</th>
                   <th style={{ width: 100 }}>Amazon</th>
-                  <th style={{ width: 110 }}>ヤフオク最安</th>
+                  <th style={{ width: 120 }}>ヤフオク相場<br /><small style={{ fontWeight: 400, color: "#999" }}>中央値</small></th>
                   <th style={{ width: 100 }}>想定利益</th>
                   <th style={{ width: 80 }}>利益率</th>
                   <th style={{ width: 60 }}>Y!件数</th>
